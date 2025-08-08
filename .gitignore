@@ -1,0 +1,70 @@
+# Файлы конфигурации с чувствительными данными
+04_configs/oanda_config.yml
+
+# Данные и модели
+01_data/*
+!01_data/.gitkeep
+
+# Логи
+05_logs/*
+!05_logs/.gitkeep
+
+# Результаты и отчеты
+06_reports/*
+!06_reports/.gitkeep
+
+# Временные файлы Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# Environment variables
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db 

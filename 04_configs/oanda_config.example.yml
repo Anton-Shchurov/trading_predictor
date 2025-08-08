@@ -1,0 +1,27 @@
+# Конфигурация для API OANDA
+# Скопируйте этот файл в oanda_config.yml и заполните своими данными
+
+# API токен для OANDA (демо-среда)
+# Получить токен можно на https://www.oanda.com/demo-account/
+api_token: "YOUR_OANDA_API_TOKEN_HERE"
+
+# Базовые настройки API
+api:
+  base_url_demo: "https://api-fxpractice.oanda.com/v3"
+  base_url_live: "https://api-fxtrade.oanda.com/v3"
+
+# Настройки торгового инструмента
+trading:
+  default_instrument: "EUR_USD"
+
+# Настройки для извлечения данных
+data_extraction:
+  default_granularity: "H1"
+  default_price_type: "M"  # M = mid prices
+  default_count: 5000
+  
+# Настройки периода данных
+data_period:
+  start_year: 2010
+  end_year: 2024
+  chunk_months: 3  # Загружаем данные кусками по 3 месяца 

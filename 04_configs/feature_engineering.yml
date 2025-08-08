@@ -1,0 +1,228 @@
+# Конфигурация для Feature Engineering Pipeline
+# Все параметры для создания технических и статистических признаков
+
+# =============================================================================
+# ТЕХНИЧЕСКИЕ ИНДИКАТОРЫ
+# =============================================================================
+technical_indicators:
+  # Exponential Moving Averages
+  ema_periods: [9, 12, 21, 50, 200]
+  
+  # MACD параметры
+  macd_params:
+    fast: 12
+    slow: 26
+    signal: 9
+  
+  # RSI период
+  rsi_period: 14
+  
+  # Stochastic Oscillator
+  stoch_params:
+    k_period: 14
+    d_period: 3
+  
+  # Commodity Channel Index
+  cci_period: 20
+  
+  # Average True Range
+  atr_period: 14
+  
+  # Bollinger Bands
+  bb_params:
+    period: 20
+    std_dev: 2.0
+  
+  # Keltner Channel
+  kc_params:
+    ema_period: 20
+    atr_period: 14
+    multiplier: 2.0
+  
+  # Donchian Channel
+  donchian_period: 20
+  
+  # Momentum
+  momentum_period: 10
+  
+  # Chaikin Money Flow
+  cmf_period: 20
+  
+  # Parabolic SAR
+  psar_params:
+    af_initial: 0.02
+    af_max: 0.2
+  
+  # Average Directional Index
+  adx_period: 14
+
+# =============================================================================
+# СТАТИСТИЧЕСКИЕ ПРИЗНАКИ
+# =============================================================================
+statistical_features:
+  # Rate of Change периоды
+  roc_periods: [1, 5, 10, 20]
+  
+  # Rolling statistics окна
+  rolling_windows: [5, 10, 20, 50]
+  
+  # Z-Score окна
+  zscore_windows: [5, 10, 20]
+  
+  # Skewness/Kurtosis окна
+  skew_kurt_windows: [10, 20, 50]
+  
+  # Price position окна
+  position_windows: [10, 20, 50]
+  
+  # Volatility окна
+  volatility_windows: [10, 20, 50]
+  
+  # Trend strength окна
+  trend_windows: [10, 20, 50]
+  
+  # Autocorrelation лаги
+  autocorr_lags: [1, 5, 10]
+  
+  # Entropy окна
+  entropy_windows: [10, 20]
+
+# =============================================================================
+# ЛАГ-ПРИЗНАКИ
+# =============================================================================
+lag_features:
+  # Колонки для создания лагов цен
+  price_columns: ['Close', 'Open', 'High', 'Low']
+  
+  # Лаговые периоды для цен
+  price_lags: [1, 2, 5, 10, 20, 24]
+  
+  # Лаговые периоды для объема
+  volume_lags: [1, 2, 5, 10, 20, 24]
+  
+  # Периоды для расчета доходностей
+  return_periods: [1, 5, 10, 20]
+  
+  # Лаги для доходностей
+  return_lags: [1, 2, 5, 10]
+  
+  # Лаги для разностей
+  diff_lags: [1, 5, 10, 20]
+  
+  # Лаги для отношений
+  ratio_lags: [1, 5, 10, 20]
+  
+  # Периоды для скользящих лагов
+  rolling_lag_periods: [1, 5, 10]
+  
+  # Окна для скользящих лагов
+  rolling_lag_windows: [3, 5]
+  
+  # Лаги волатильности
+  volatility_lags: [1, 5, 10, 20]
+  
+  # Лаги для взаимодействия цена-объем
+  volume_price_lags: [1, 5, 10]
+  
+  # Колонки для кросс-лаговых фич
+  cross_lag_columns: ['Volume']
+  
+  # Лаги для кросс-корреляций
+  cross_lags: [1, 5, 10]
+  
+  # Сезонные периоды (для часовых данных: 24ч = сутки)
+  # 168ч (неделя) удален из-за слишком большого количества NaN в начале
+  seasonal_periods: [24]
+
+# =============================================================================
+# ОБЩИЕ НАСТРОЙКИ ПАЙПЛАЙНА
+# =============================================================================
+pipeline_settings:
+  # Входные данные
+  input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
+  
+  # Выходные файлы
+  output_file: "01_data/processed/eurusd_features.parquet"
+  output_demo_file: "01_data/processed/eurusd_features_demo.parquet"
+  
+  # Размер демо-выборки (последние N записей)
+  demo_size: 10000
+  
+  # Параметры сохранения Parquet
+  parquet_settings:
+    engine: "pyarrow"
+    compression: "snappy"
+    index: true
+  
+  # Обработка пропущенных значений
+  missing_values:
+    strategy: "keep_all"  # "keep_all", "drop", "forward_fill", "backward_fill"
+    min_periods_required: 200  # Минимум записей для начала расчетов
+    # Сохраняем все данные для анализа пользователем
+    drop_all_nan_only: false
+  
+  # Настройки валидации
+  validation:
+    check_duplicates: true
+    check_sorting: true
+    max_missing_ratio: 0.1  # Максимальная доля пропусков (10%)
+  
+  # Настройки логирования
+  logging:
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+    log_file: "05_logs/feature_engineering.log"
+
+# =============================================================================
+# МЕТАДАННЫЕ И ОПИСАНИЯ
+# =============================================================================
+metadata:
+  version: "1.0.0"
+  created_date: "2024-12-19"
+  description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
+  
+  # Ожидаемые колонки входных данных (стандартизированные имена)
+  expected_input_columns: ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
+  
+  # Примерное количество создаваемых признаков
+  estimated_features:
+    technical_indicators: 35
+    statistical_features: 55
+    lag_features: 120
+    total: 210
+  
+  # Требуемые библиотеки
+  required_libraries:
+    - "pandas>=1.5.0"
+    - "numpy>=1.21.0"
+    - "scipy>=1.9.0"
+    - "pandas-ta>=0.3.14b0"
+    - "pyarrow>=12.0.0"
+
+# =============================================================================
+# ПРОФИЛИ КОНФИГУРАЦИИ
+# =============================================================================
+profiles:
+  # Быстрый профиль для тестирования
+  quick:
+    technical_indicators:
+      ema_periods: [12, 21, 50]
+      rsi_period: 14
+    statistical_features:
+      rolling_windows: [10, 20]
+      roc_periods: [1, 5]
+    lag_features:
+      price_lags: [1, 5, 10]
+      volume_lags: [1, 5]
+  
+  # Полный профиль для продакшн
+  full:
+    # Использует все настройки выше
+    inherit_from: "default"
+  
+  # Экспериментальный профиль
+  experimental:
+    technical_indicators:
+      ema_periods: [5, 8, 13, 21, 34, 55, 89, 144, 233]  # Fibonacci
+    statistical_features:
+      rolling_windows: [8, 13, 21, 34, 55]
+      trend_windows: [13, 21, 34]

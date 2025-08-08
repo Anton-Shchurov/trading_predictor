@@ -1,0 +1,6 @@
+Имя: MetaTrader Web Demo
+Сервер: MetaQuotes-Demo
+Тип: Forex Hedged EUR
+Логин: 5019753075
+Пароль: JwBtP+6h
+Инвестор: Cd*uZ7Ev
