@@ -44,7 +44,7 @@ def run_eda_notebook():
             interim_dir = project_root / "01_data" / "interim"
             if interim_dir.exists():
                 md_files = list(interim_dir.glob("eda_report_*.md"))
-                images_dir = interim_dir / "images"
+                images_dir = interim_dir /"images" / "raw_data_eda"
                 
                 if md_files:
                     latest_report = max(md_files, key=lambda p: p.stat().st_mtime)

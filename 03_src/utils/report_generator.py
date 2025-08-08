@@ -30,7 +30,7 @@ class EDAReportGenerator:
             
         self.project_root = Path(project_root)
         self.interim_dir = self.project_root / "01_data" / "interim"
-        self.images_dir = self.interim_dir / "images"
+        self.images_dir = self.interim_dir / "images" / "raw_data_eda"
         
         # Создаем папки если их нет
         self.interim_dir.mkdir(parents=True, exist_ok=True)
