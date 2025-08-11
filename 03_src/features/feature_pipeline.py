@@ -268,69 +268,231 @@ class FeatureEngineeringPipeline:
     
     def create_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Создает все признаки согласно конфигурации.
+        Создает финальный набор признаков для MVP согласно спецификации.
         
         Args:
             df: DataFrame с исходными данными
             
         Returns:
-            DataFrame с добавленными признаками
+            DataFrame с 33 признаками (колонка "close" и признаки вида "f_*")
         """
-        self.logger.info("Starting feature creation process...")
-        
+        self.logger.info("Starting MVP feature creation...")
+
         start_time = pd.Timestamp.now()
         original_shape = df.shape
-        
-        # 1. Технические индикаторы
-        self.logger.info("Creating technical indicators...")
+
+        # Защита: требуем базовые колонки
+        base_required = ['Open', 'High', 'Low', 'Close', 'Volume']
+        missing_base = [c for c in base_required if c not in df.columns]
+        if missing_base:
+            raise ValueError(f"Missing required columns for feature engineering: {missing_base}")
+
+        # 1) Базовые тех. серии, которые будут использованы далее
+        # EMA 10/20/50/200
         try:
-            tech_config = self.config.get('technical_indicators', {})
-            df = self.technical_indicators.add_all(df, tech_config)
-            tech_features = len(self.technical_indicators.get_feature_names(tech_config))
-            self.logger.info(f"Added {tech_features} technical indicators")
+            df = self.technical_indicators.add_ema(df, periods=[10, 20, 50, 200])
         except Exception as e:
-            self.logger.error(f"Error creating technical indicators: {e}")
+            self.logger.error(f"Failed to compute EMA: {e}")
             raise
-        
-        # 2. Статистические признаки
-        self.logger.info("Creating statistical features...")
+
+        # ATR14 и ATR20 (сохраняем отдельно)
         try:
-            stat_config = self.config.get('statistical_features', {})
-            df = self.statistical_features.add_all(df, stat_config)
-            stat_features = len(self.statistical_features.get_feature_names(stat_config))
-            self.logger.info(f"Added {stat_features} statistical features")
+            df = self.technical_indicators.add_atr(df, period=14)
+            atr14 = df['ATR'].copy()
+            df = self.technical_indicators.add_atr(df, period=20)
+            atr20 = df['ATR'].copy()
         except Exception as e:
-            self.logger.error(f"Error creating statistical features: {e}")
+            self.logger.error(f"Failed to compute ATR: {e}")
             raise
-        
-        # 3. Лаг-признаки
-        self.logger.info("Creating lag features...")
+
+        # Bollinger Bands 20
         try:
-            lag_config = self.config.get('lag_features', {})
-            df = self.lag_features.add_all(df, lag_config)
-            lag_feature_count = len(self.lag_features.get_feature_names(lag_config))
-            self.logger.info(f"Added {lag_feature_count} lag features")
+            df = self.technical_indicators.add_bollinger_bands(df, period=20, std_dev=2.0)
         except Exception as e:
-            self.logger.error(f"Error creating lag features: {e}")
+            self.logger.error(f"Failed to compute Bollinger Bands: {e}")
             raise
-        
-        # Обработка пропущенных значений
-        df = self._handle_missing_values(df)
-        
-        # Обновляем статистику
+
+        # Keltner Channel (EMA20 + ATR20)
+        try:
+            df = self.technical_indicators.add_keltner_channel(df, ema_period=20, atr_period=20, multiplier=2.0)
+        except Exception as e:
+            self.logger.error(f"Failed to compute Keltner Channel: {e}")
+            raise
+
+        # Donchian 20
+        try:
+            df = self.technical_indicators.add_donchian_channel(df, period=20)
+        except Exception as e:
+            self.logger.error(f"Failed to compute Donchian Channel: {e}")
+            raise
+
+        # MACD (12,26,9)
+        try:
+            df = self.technical_indicators.add_macd(df, fast=12, slow=26, signal=9)
+        except Exception as e:
+            self.logger.error(f"Failed to compute MACD: {e}")
+            raise
+
+        # ADX/DI (14)
+        try:
+            df = self.technical_indicators.add_adx(df, period=14)
+        except Exception as e:
+            self.logger.error(f"Failed to compute ADX/DI: {e}")
+            raise
+
+        # PSAR
+        try:
+            df = self.technical_indicators.add_parabolic_sar(df)
+        except Exception as e:
+            self.logger.error(f"Failed to compute PSAR: {e}")
+            raise
+
+        # RSI (5 и 14)
+        try:
+            # сначала 5, сохраняем
+            df = self.technical_indicators.add_rsi(df, period=5)
+            df['RSI_5'] = df['RSI']
+            # затем 14, сохраняем
+            df = self.technical_indicators.add_rsi(df, period=14)
+            df['RSI_14'] = df['RSI']
+        except Exception as e:
+            self.logger.error(f"Failed to compute RSI: {e}")
+            raise
+
+        # 2) Вспомогательные вычисления
+        close = df['Close']
+        high = df['High']
+        low = df['Low']
+        volume = df['Volume']
+
+        # Лог-доходности
+        log_ret_1 = np.log(close / close.shift(1))
+
+        # Интра-дневной (anchored per day) VWAP: cum(price*vol)/cum(vol) по дням
+        if isinstance(df.index, pd.DatetimeIndex):
+            grp = df.index.normalize()
+            vwap_num = (close * volume).groupby(grp).cumsum()
+            vwap_den = volume.groupby(grp).cumsum()
+            vwap = vwap_num / vwap_den.replace(0, np.nan)
+        else:
+            # fallback: 20-bar rolling VWAP
+            vwap = (close * volume).rolling(window=20).sum() / volume.rolling(window=20).sum()
+
+        # 3) Сборка итоговых признаков (33 колонки)
+        eps = 1e-12
+        features = pd.DataFrame(index=df.index)
+
+        # Базовый уровень цены
+        features['close'] = close
+
+        # EMA
+        features['f_ema_10'] = df.get('EMA_10')
+        features['f_ema_20'] = df.get('EMA_20')
+        features['f_ema_50'] = df.get('EMA_50')
+        features['f_ema_200'] = df.get('EMA_200')
+
+        # Трендовые
+        features['f_close_minus_ema_20_over_atr14'] = np.where(
+            atr14.abs() > eps, (close - features['f_ema_20']) / atr14, 0.0
+        )
+        features['f_ema20_slope'] = features['f_ema_20'].diff()
+        features['f_macd_12_26_9_hist'] = df.get('MACD_Hist')
+        features['f_di_diff_14'] = df.get('DI_Plus') - df.get('DI_Minus')
+        features['f_adx_14'] = df.get('ADX')
+
+        # Импульс / осцилляторы
+        features['f_rsi_5'] = df.get('RSI_5')
+        features['f_rsi_14'] = df.get('RSI_14')
+        features['f_roc_5'] = close.pct_change(periods=5) * 100.0
+
+        # Волатильность и диапазон
+        features['f_atr_14_pct'] = np.where(close.abs() > eps, atr14 / close, np.nan)
+        features['f_return_std_20'] = log_ret_1.rolling(window=20).std()
+        features['f_range_over_atr'] = np.where(
+            atr14.abs() > eps, (high - low) / atr14, np.nan
+        )
+
+        dc_low = df.get('DC_Lower')
+        dc_up = df.get('DC_Upper')
+        dc_range = (dc_up - dc_low)
+        features['f_donchian_pos_20'] = np.where(
+            dc_range.abs() > eps, (close - dc_low) / dc_range, 0.5
+        )
+
+        features['f_keltner_pos_20'] = np.where(
+            (atr20 * 2).abs() > eps, (close - features['f_ema_20']) / (2.0 * atr20), 0.0
+        )
+
+        bb_low = df.get('BB_Lower')
+        bb_up = df.get('BB_Upper')
+        bb_mid = df.get('BB_Middle')
+        bb_width = (bb_up - bb_low)
+        features['f_percentB_20'] = np.where(
+            bb_width.abs() > eps, (close - bb_low) / bb_width, 0.5
+        )
+        features['f_bandwidth_20'] = np.where(
+            bb_mid.abs() > eps, bb_width / bb_mid, np.nan
+        )
+
+        # Статистика / лаги
+        def log_ret(period: int) -> pd.Series:
+            return np.log(close / close.shift(period))
+
+        features['f_ret_1'] = log_ret(1)
+        features['f_ret_6'] = log_ret(6)
+        features['f_ret_12'] = log_ret(12)
+        features['f_ret_24'] = log_ret(24)
+
+        mean20 = features['f_ret_1'].rolling(window=20).mean()
+        std20 = features['f_ret_1'].rolling(window=20).std().replace(0, np.nan)
+        features['f_ret_1_z20'] = (features['f_ret_1'] - mean20) / std20
+
+        features['f_rolling_mean_ret_5'] = features['f_ret_1'].rolling(window=5).mean()
+        features['f_rolling_std_ret_5'] = features['f_ret_1'].rolling(window=5).std()
+
+        mean50 = close.rolling(window=50).mean()
+        std50 = close.rolling(window=50).std().replace(0, np.nan)
+        features['f_zscore_close_50'] = (close - mean50) / std50
+
+        # Прочие
+        features['f_vwap_dev_over_atr14'] = np.where(
+            atr14.abs() > eps, (close - vwap) / atr14, np.nan
+        )
+        if 'PSAR' in df.columns:
+            features['f_psar_trend'] = (close > df['PSAR']).astype(int)
+        else:
+            features['f_psar_trend'] = np.nan
+
+        # Календарные признаки
+        if isinstance(df.index, pd.DatetimeIndex):
+            hours = df.index.hour
+            features['f_hour_of_day_sin'] = np.sin(2 * np.pi * hours / 24.0)
+            features['f_hour_of_day_cos'] = np.cos(2 * np.pi * hours / 24.0)
+            features['f_dow'] = df.index.dayofweek
+        else:
+            features['f_hour_of_day_sin'] = np.nan
+            features['f_hour_of_day_cos'] = np.nan
+            features['f_dow'] = np.nan
+
+        # Удалим возможные бесконечности
+        features = features.replace([np.inf, -np.inf], np.nan)
+
+        # Обработка пропусков по стратегии из конфигурации
+        features = self._handle_missing_values(features)
+
+        # Статистика
         end_time = pd.Timestamp.now()
         self.stats.update({
-            'created_features': len(df.columns) - original_shape[1],
-            'total_columns': len(df.columns),
+            'created_features': len(features.columns),
+            'total_columns': len(features.columns),
             'processing_time': (end_time - start_time).total_seconds(),
-            'data_shape': df.shape
+            'data_shape': features.shape
         })
-        
-        self.logger.info(f"Feature creation completed in {self.stats['processing_time']:.2f} seconds")
-        self.logger.info(f"Total features created: {self.stats['created_features']}")
-        self.logger.info(f"Final dataset shape: {df.shape}")
-        
-        return df
+
+        self.logger.info(f"MVP features created in {self.stats['processing_time']:.2f} seconds")
+        self.logger.info(f"Final feature set shape: {features.shape}")
+
+        return features
     
     def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
         """Обрабатывает пропущенные значения согласно конфигурации."""
@@ -393,8 +555,7 @@ class FeatureEngineeringPipeline:
         return df
     
     def save_results(self, df: pd.DataFrame, 
-                    output_path: Optional[str] = None,
-                    create_demo: bool = True) -> Tuple[str, Optional[str]]:
+                    output_path: Optional[str] = None) -> Tuple[str, Optional[str]]:
         """
         Сохраняет результаты в формате Parquet.
         
@@ -430,23 +591,9 @@ class FeatureEngineeringPipeline:
                 index=index
             )
             self.logger.info(f"Full dataset saved to: {output_path}")
-            
-            demo_path = None
-            if create_demo:
-                # Создаем демо-файл с последними записями
-                demo_size = self.config['pipeline_settings'].get('demo_size', 10000)
-                demo_path = self.config['pipeline_settings']['output_demo_file']
-                
-                demo_df = df.tail(demo_size)
-                demo_df.to_parquet(
-                    demo_path,
-                    engine=engine,
-                    compression=compression,
-                    index=index
-                )
-                self.logger.info(f"Demo dataset ({demo_size} rows) saved to: {demo_path}")
-            
-            return output_path, demo_path
+
+            # Больше не создаём demo-файл; возвращаем None на его месте
+            return output_path, None
             
         except Exception as e:
             self.logger.error(f"Error saving results: {e}")

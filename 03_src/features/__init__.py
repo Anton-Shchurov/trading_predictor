@@ -11,10 +11,12 @@ from .technical_indicators import TechnicalIndicators
 from .statistical_features import StatisticalFeatures
 from .lag_features import LagFeatures
 from .feature_pipeline import FeatureEngineeringPipeline
+from .target_labels import create_bhs_labels
 
 __all__ = [
     'TechnicalIndicators',
     'StatisticalFeatures', 
     'LagFeatures',
-    'FeatureEngineeringPipeline'
+    'FeatureEngineeringPipeline',
+    'create_bhs_labels'
 ]
