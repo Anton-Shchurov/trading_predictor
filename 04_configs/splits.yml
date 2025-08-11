@@ -1,0 +1,27 @@
+version: 1
+description: Временные разрезы для обучения/валидации/теста и фолды TimeSeriesSplit
+
+splits:
+  method: ratios  # ratios | dates
+  ratios:
+    train: 0.70
+    valid: 0.15
+    test: 0.15
+  # альтернативно можно указать даты (YYYY-MM-DD HH:MM:SS)
+  dates:
+    train_end: null
+    valid_end: null
+    test_start: null
+
+time_series_cv:
+  n_splits: 5
+  max_train_size: null
+  test_size: null
+  gap: 0
+
+artifacts:
+  save_cv_indices: true
+  cv_indices_path: 06_reports/cv_indices.json
+  save_split_dates: true
+  split_dates_path: 06_reports/split_dates.yml
+

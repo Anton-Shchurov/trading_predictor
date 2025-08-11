@@ -30,4 +30,9 @@
 Для работы с YAML конфигурацией необходимо установить библиотеку PyYAML:
 ```bash
 pip install PyYAML
-``` 
+```
+
+## Моделирование: новые конфигурации
+
+- `splits.yml` — временные разрезы train/valid/test и список фолдов TimeSeriesSplit (индексы)
+- `models.yml` — стартовые гиперпараметры XGBoost/LightGBM/CatBoost для мультиклассовой задачи buy/hold/sell

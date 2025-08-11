@@ -1,0 +1,66 @@
+version: 1
+task: multiclass_bhs
+classes:
+  - sell
+  - hold
+  - buy
+
+metrics:
+  primary: f1_macro
+  others:
+    - balanced_accuracy
+    - accuracy
+    - mlogloss
+
+common:
+  random_state: 42
+  early_stopping_rounds: 50
+  eval_metric: mlogloss
+
+models:
+  xgboost:
+    enabled: true
+    params:
+      objective: multi:softprob
+      num_class: 3
+      learning_rate: 0.05
+      n_estimators: 2000
+      max_depth: 6
+      subsample: 0.8
+      colsample_bytree: 0.8
+      tree_method: hist
+      reg_lambda: 1.0
+      reg_alpha: 0.0
+    fit:
+      verbose: false
+
+  lightgbm:
+    enabled: true
+    params:
+      objective: multiclass
+      num_class: 3
+      metric: multi_logloss
+      learning_rate: 0.05
+      n_estimators: 5000
+      num_leaves: 63
+      feature_fraction: 0.8
+      bagging_fraction: 0.8
+      bagging_freq: 1
+      lambda_l1: 0.0
+      lambda_l2: 0.0
+      verbose: -1
+    fit:
+      verbose: -1
+
+  catboost:
+    enabled: true
+    params:
+      loss_function: MultiClass
+      learning_rate: 0.05
+      iterations: 5000
+      depth: 6
+      l2_leaf_reg: 3.0
+      od_type: Iter
+      od_wait: 50
+      verbose: false
+
