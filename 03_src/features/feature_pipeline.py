@@ -555,8 +555,7 @@ class FeatureEngineeringPipeline:
         return df
     
     def save_results(self, df: pd.DataFrame, 
-                    output_path: Optional[str] = None,
-                    create_demo: bool = True) -> Tuple[str, Optional[str]]:
+                    output_path: Optional[str] = None) -> Tuple[str, Optional[str]]:
         """
         Сохраняет результаты в формате Parquet.
         
@@ -592,23 +591,9 @@ class FeatureEngineeringPipeline:
                 index=index
             )
             self.logger.info(f"Full dataset saved to: {output_path}")
-            
-            demo_path = None
-            if create_demo:
-                # Создаем демо-файл с последними записями
-                demo_size = self.config['pipeline_settings'].get('demo_size', 10000)
-                demo_path = self.config['pipeline_settings']['output_demo_file']
-                
-                demo_df = df.tail(demo_size)
-                demo_df.to_parquet(
-                    demo_path,
-                    engine=engine,
-                    compression=compression,
-                    index=index
-                )
-                self.logger.info(f"Demo dataset ({demo_size} rows) saved to: {demo_path}")
-            
-            return output_path, demo_path
+
+            # Больше не создаём demo-файл; возвращаем None на его месте
+            return output_path, None
             
         except Exception as e:
             self.logger.error(f"Error saving results: {e}")
