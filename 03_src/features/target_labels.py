@@ -1,12 +1,12 @@
 """
 Функции для создания целевых переменных.
 
-MVP: разметка buy/hold/sell (y_bhs) по правилу:
+MVP: разметка buy/hold/sell (y_bhs) с метками 0/1/2 по правилу:
 - Горизонт прогноза H (в барах)
 - r_t = Close_{t+H} - Close_t
 - ATR(14) по историческим данным (без утечки будущего)
 - eps_t = 0.2 * ATR_t + spread_t/2
-- Метка: 1 если r_t > eps_t; -1 если r_t < -eps_t; иначе 0
+- Метка: 2 (buy), если r_t > eps_t; 0 (sell), если r_t < -eps_t; иначе 1 (hold)
 
 Последние H строк остаются без меток (NaN).
 """
@@ -80,7 +80,7 @@ def create_bhs_labels(
     return_debug: bool = True,
 ) -> pd.DataFrame:
     """
-    Создаёт DataFrame с колонкой целевой переменной y_bhs (1/0/-1) по правилу buy/hold/sell.
+    Создаёт DataFrame с колонкой целевой переменной y_bhs (2/1/0) по правилу buy/hold/sell.
 
     Без утечки будущего: ATR и eps_t основаны только на прошлых данных. Последние H строк — NaN.
 
@@ -121,9 +121,10 @@ def create_bhs_labels(
     valid_mask = ret_h.notna() & eps_t.notna()
 
     y = pd.Series(pd.NA, index=close.index, dtype="Int8")
-    y.loc[valid_mask & (ret_h > eps_t)] = 1
-    y.loc[valid_mask & (ret_h < -eps_t)] = -1
-    y.loc[valid_mask & ~(ret_h > eps_t) & ~(ret_h < -eps_t)] = 0
+    # 2 — buy, 1 — hold, 0 — sell
+    y.loc[valid_mask & (ret_h > eps_t)] = 2
+    y.loc[valid_mask & (ret_h < -eps_t)] = 0
+    y.loc[valid_mask & ~(ret_h > eps_t) & ~(ret_h < -eps_t)] = 1
 
     out = pd.DataFrame(index=close.index)
     out["y_bhs"] = y

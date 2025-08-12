@@ -141,12 +141,8 @@ pipeline_settings:
   # Входные данные
   input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
   
-  # Выходные файлы
+  # Выходной файл
   output_file: "01_data/processed/eurusd_features.parquet"
-  output_demo_file: "01_data/processed/eurusd_features_demo.parquet"
-  
-  # Размер демо-выборки (последние N записей)
-  demo_size: 10000
   
   # Параметры сохранения Parquet
   parquet_settings:

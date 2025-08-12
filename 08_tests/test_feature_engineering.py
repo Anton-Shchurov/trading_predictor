@@ -538,10 +538,8 @@ class TestFeatureEngineeringPipeline:
             output_path = Path(temp_dir) / "test.parquet"
             demo_path = Path(temp_dir) / "test_demo.parquet"
             
-            # Мокаем настройки пайплайна
+            # Мокаем настройки пайплайна (без demo)
             pipeline.config['pipeline_settings'] = {
-                'output_demo_file': str(demo_path),
-                'demo_size': 10,
                 'parquet_settings': {
                     'engine': 'pyarrow',
                     'compression': 'snappy',
@@ -549,13 +547,12 @@ class TestFeatureEngineeringPipeline:
                 }
             }
             
-            full_path, demo_path_result = pipeline.save_results(
-                self.test_df, str(output_path), create_demo=True
-            )
+            full_path, demo_path_result = pipeline.save_results(self.test_df, str(output_path))
             
-            # Проверяем, что методы сохранения были вызваны
-            assert mock_to_parquet.call_count == 2  # Полный файл + демо
+            # Проверяем, что сохранение полного файла вызвано один раз, демо не создаётся
+            assert mock_to_parquet.call_count == 1
             assert full_path == str(output_path)
+            assert demo_path_result is None
     
     def test_get_feature_importance_analysis(self):
         """Тест анализа важности признаков."""

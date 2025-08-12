@@ -58,6 +58,13 @@ def _validate_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     mask = (~X.isna().any(axis=1)) & (~np.isinf(X).any(axis=1)) & y.notna()
     X = X.loc[mask]
     y = y.loc[mask]
+
+    # Проверяем, что метки в формате 0,1,2
+    unique_labels = set(int(v) for v in pd.Series(y).unique().tolist())
+    if not unique_labels.issubset({0, 1, 2}):
+        raise ValueError(
+            f"Ожидаются метки классов 0,1,2. Обнаружены: {sorted(unique_labels)}. Пересоздайте датасет с новыми метками."
+        )
     return X, y
 
 
@@ -172,7 +179,7 @@ def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarr
     if y_proba is not None:
         # log_loss требует корректные вероятности и все классы
         try:
-            res["mlogloss"] = log_loss(y_true, y_proba, labels=[-1, 0, 1])
+            res["mlogloss"] = log_loss(y_true, y_proba, labels=[0, 1, 2])
         except Exception:
             pass
     return res
@@ -180,7 +187,12 @@ def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarr
 
 def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
     from xgboost import XGBClassifier
+    try:
+        from xgboost.callback import EarlyStopping  # noqa: F401
+    except Exception:
+        EarlyStopping = None  # type: ignore
 
+    # Метки уже в формате 0..2
     sample_weight = y_tr.map(class_weights).astype(float).values
     clf = XGBClassifier(
         objective="multi:softprob",
@@ -195,15 +207,83 @@ def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
         random_state=42,
         n_jobs=-1,
     )
-    clf.fit(
-        X_tr,
-        y_tr,
-        sample_weight=sample_weight,
-        eval_set=[(X_va, y_va)],
-        verbose=False,
-        early_stopping_rounds=50,
-    )
+    # Совместимость с разными версиями XGBoost
+    try:
+        if EarlyStopping is not None:
+            clf.fit(
+                X_tr,
+                y_tr,
+                sample_weight=sample_weight,
+                eval_set=[(X_va, y_va)],
+                verbose=False,
+                callbacks=[EarlyStopping(rounds=50, save_best=True)],
+            )
+        else:
+            raise TypeError("callbacks not supported")
+    except TypeError:
+        # Fallback 1: early_stopping_rounds в fit
+        try:
+            clf.fit(
+                X_tr,
+                y_tr,
+                sample_weight=sample_weight,
+                eval_set=[(X_va, y_va)],
+                verbose=False,
+                early_stopping_rounds=50,
+            )
+        except TypeError:
+            # Fallback 2: попытка передать early_stopping_rounds в конструктор
+            try:
+                clf = XGBClassifier(
+                    objective="multi:softprob",
+                    num_class=3,
+                    learning_rate=0.05,
+                    n_estimators=2000,
+                    max_depth=6,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    tree_method="hist",
+                    eval_metric="mlogloss",
+                    random_state=42,
+                    n_jobs=-1,
+                    early_stopping_rounds=50,  # type: ignore[arg-type]
+                )
+                clf.fit(
+                    X_tr,
+                    y_tr,
+                    sample_weight=sample_weight,
+                    eval_set=[(X_va, y_va)],
+                    verbose=False,
+                )
+            except TypeError:
+                # Fallback 3: без ранней остановки
+                clf = XGBClassifier(
+                    objective="multi:softprob",
+                    num_class=3,
+                    learning_rate=0.05,
+                    n_estimators=2000,
+                    max_depth=6,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    tree_method="hist",
+                    eval_metric="mlogloss",
+                    random_state=42,
+                    n_jobs=-1,
+                )
+                clf.fit(
+                    X_tr,
+                    y_tr,
+                    sample_weight=sample_weight,
+                    eval_set=[(X_va, y_va)],
+                    verbose=False,
+                )
     return clf
+
+
+def _predict_xgboost(clf, X):
+    proba = clf.predict_proba(X)
+    pred = clf.predict(X)
+    return pred, proba
 
 
 def _fit_lightgbm(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
@@ -230,14 +310,8 @@ def _fit_lightgbm(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
 def _fit_catboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
     from catboost import CatBoostClassifier
 
-    # Для CatBoost класс-метки должны быть 0..K-1. Приведём mapping {-1,0,1} -> {0,1,2}
-    mapping = {-1: 0, 0: 1, 1: 2}
-    inv_mapping = {v: k for k, v in mapping.items()}
-    y_tr_cb = y_tr.map(mapping).astype(int)
-    y_va_cb = y_va.map(mapping).astype(int)
-
     # Переводим веса в порядке классов 0,1,2
-    class_weights_list = [class_weights[-1], class_weights[0], class_weights[1]]
+    class_weights_list = [class_weights[0], class_weights[1], class_weights[2]]
 
     clf = CatBoostClassifier(
         loss_function="MultiClass",
@@ -249,33 +323,22 @@ def _fit_catboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
         od_wait=50,
         verbose=False,
         random_state=42,
+        class_weights=class_weights_list,
     )
-    clf.fit(X_tr, y_tr_cb, eval_set=(X_va, y_va_cb), class_weights=class_weights_list, verbose=False)
-    clf._label_mapping = (mapping, inv_mapping)  # сохраняем для последующего преобразования
+    clf.fit(X_tr, y_tr, eval_set=(X_va, y_va), verbose=False)
     return clf
 
 
 def _predict_catboost(clf, X):
-    mapping, inv_mapping = clf._label_mapping
     proba = clf.predict_proba(X)
-    # proba по классам 0,1,2 -> вернём порядок {-1,0,1}
-    # Уже соответствует mapping 0:-1,1:0,2:1
-    pred_idx = proba.argmax(axis=1)
-    pred = np.array([inv_mapping[i] for i in pred_idx])
-    # Приведём proba к порядку [-1,0,1]
-    proba_reordered = proba[:, [0, 1, 2]]
-    return pred, proba_reordered
+    pred = clf.predict(X)
+    return pred, proba
 
 
 def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_weights: Dict[int, float]):
     if name == "xgboost":
         clf = _fit_xgboost(X_train, y_train, X_valid, y_valid, class_weights)
-        proba = clf.predict_proba(X_valid)
-        pred = proba.argmax(axis=1) - 1  # XGB обучен на метках {-1,0,1}? По умолчанию 0..K-1, поэтому смещение
-        # Уточнение: XGB принимает исходные метки как -1,0,1 и сам кодирует. predict возвращает 0..2. Смещаем обратно
-        pred = clf.predict(X_valid)
-        if pred.min() >= 0:  # если вернул 0..2 — сместим
-            pred = pred - 1
+        pred, proba = _predict_xgboost(clf, X_valid)
         metrics = _evaluate(y_valid.values, pred, proba)
         return clf, metrics
 
@@ -283,8 +346,6 @@ def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_wei
         clf = _fit_lightgbm(X_train, y_train, X_valid, y_valid, class_weights)
         proba = clf.predict_proba(X_valid)
         pred = clf.predict(X_valid)
-        if pred.min() >= 0:
-            pred = pred - 1
         metrics = _evaluate(y_valid.values, pred, proba)
         return clf, metrics
 
@@ -298,7 +359,7 @@ def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_wei
 
 
 def _confusion_and_report(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, object]:
-    labels = [-1, 0, 1]
+    labels = [0, 1, 2]
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     report = classification_report(y_true, y_pred, labels=labels, digits=4, output_dict=True)
     return {"confusion_matrix": cm.tolist(), "classification_report": report}
@@ -332,14 +393,9 @@ def run_modeling_pipeline(
     if not features_fp.exists():
         raise FileNotFoundError(f"Не найден файл признаков: {features_fp}")
     df = pd.read_parquet(features_fp)
-    # Если нет целевой переменной, попробуем автоматически создать и перезагрузить
-    if "y_bhs" not in df.columns:
-        try:
-            from .dataset_preparation import prepare_labeled_dataset
-            labeled_fp = prepare_labeled_dataset(project_root=project_root, features_path=features_path)
-            df = pd.read_parquet(labeled_fp)
-        except Exception as e:
-            raise RuntimeError(f"В файле фич отсутствует 'y_bhs' и не удалось автоматически создать метки: {e}")
+    # Строгая проверка: наличие любой целевой переменной вида y_*
+    if not any(col.startswith("y_") for col in df.columns):
+        raise ValueError("В датасете отсутствует целевая переменная вида 'y_*'. Добавьте её на этапе feature engineering.")
 
     # 2) Валидация/сортировка
     df = _ensure_sorted_index(df)
@@ -395,11 +451,11 @@ def run_modeling_pipeline(
         # оценим на тесте
         if model_name == "catboost":
             y_pred_test, y_proba_test = _predict_catboost(clf_final, X_test)
+        elif model_name == "xgboost":
+            y_pred_test, y_proba_test = _predict_xgboost(clf_final, X_test)
         else:
             y_proba_test = clf_final.predict_proba(X_test)
             y_pred_test = clf_final.predict(X_test)
-            if y_pred_test.min() >= 0:
-                y_pred_test = y_pred_test - 1
         test_metrics = _evaluate(y_test.values, y_pred_test, y_proba_test)
         test_details = _confusion_and_report(y_test.values, y_pred_test)
 
