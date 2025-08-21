@@ -13,6 +13,10 @@
 06_reports/*
 !06_reports/.gitkeep
 
+# Общие данные
+07_common_data/*
+!07_common_data/.gitkeep
+
 # Временные файлы Python
 __pycache__/
 *.py[cod]
