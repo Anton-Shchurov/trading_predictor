@@ -48,6 +48,9 @@ def _ensure_sorted_index(df: pd.DataFrame) -> pd.DataFrame:
 def _validate_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
     # Требуем столбцы признаков f_* и целевую переменную y_bhs
     feature_cols = [c for c in df.columns if c.startswith("f_") or c == "close"]
+    # Явно исключаем диагностические колонки, если они случайно попали в датасет
+    debug_exclude = {"f_ret_h", "f_dead_eps", "f_atr"}
+    feature_cols = [c for c in feature_cols if c not in debug_exclude]
     if "y_bhs" not in df.columns:
         raise ValueError("В датафрейме отсутствует колонка 'y_bhs' — создайте метки целевого класса")
 
@@ -80,6 +83,7 @@ def _temporal_train_valid_test_split(
         if n_test <= 0:
             raise ValueError("Недостаточно данных для теста при указанных долях")
 
+        # Индексы для метаданных до учета gap
         idx_train_end = X.index[n_train - 1]
         idx_valid_end = X.index[n_train + n_valid - 1]
         idx_test_start = X.index[n_train + n_valid]
@@ -422,9 +426,11 @@ def run_modeling_pipeline(
     y_trval = pd.concat([y_train, y_valid])
     folds = _time_series_folds(X_trval, y_trval, cfg)
     if cfg.artifacts.get("save_cv_indices", True):
-        _save_cv_indices(folds, project_root / cfg.artifacts.get("cv_indices_path", "06_reports/cv_indices.json"), X_trval.index)
+        cv_indices_name = Path(cfg.artifacts.get("cv_indices_path", "cv_indices.json")).name
+        _save_cv_indices(folds, save_dir_path / cv_indices_name, X_trval.index)
     if cfg.artifacts.get("save_split_dates", True):
-        with open(project_root / cfg.artifacts.get("split_dates_path", "06_reports/split_dates.yml"), "w", encoding="utf-8") as f:
+        split_dates_name = Path(cfg.artifacts.get("split_dates_path", "split_dates.yml")).name
+        with open(save_dir_path / split_dates_name, "w", encoding="utf-8") as f:
             yaml.safe_dump(split_meta, f, allow_unicode=True)
 
     # 6) Веса классов

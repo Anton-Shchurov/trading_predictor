@@ -295,7 +295,7 @@ class FeatureEngineeringPipeline:
             self.logger.error(f"Failed to compute EMA: {e}")
             raise
 
-        # ATR14 и ATR20 (сохраняем отдельно)
+        # ATR14 и ATR20 (сохраняем отдельно). ATR реализован как Wilder EWM без утечки
         try:
             df = self.technical_indicators.add_atr(df, period=14)
             atr14 = df['ATR'].copy()
@@ -406,6 +406,7 @@ class FeatureEngineeringPipeline:
         features['f_roc_5'] = close.pct_change(periods=5) * 100.0
 
         # Волатильность и диапазон
+        # Сохраняем только нормированную версию ATR для устойчивости масштаба; абсолютный ATR не записываем
         features['f_atr_14_pct'] = np.where(close.abs() > eps, atr14 / close, np.nan)
         features['f_return_std_20'] = log_ret_1.rolling(window=20).std()
         features['f_range_over_atr'] = np.where(
@@ -512,12 +513,8 @@ class FeatureEngineeringPipeline:
         self.logger.info(f"Initial missing values: {initial_missing:,} ({initial_missing/(df.shape[0]*df.shape[1])*100:.2f}%)")
         
         if strategy == 'keep_all':
-            # Заполняем пропуски двунаправленно для тестовой стабильности
-            self.logger.info("Filling missing values (keep_all mode)")
-            df = df.fillna(method='ffill').fillna(method='bfill')
-            # Если после заполнения остались NaN в начале/конце, удалим их
-            if df.isnull().any().any():
-                df = df.dropna()
+            # Не заполняем пропуски, сохраняем исходные NaN для последующей фильтрации на следующих этапах
+            self.logger.info("Preserving missing values (keep_all mode): no filling, no dropping at this stage")
         elif strategy == 'drop':
             if drop_all_nan_only:
                 # Удаляем только строки где ВСЕ значения NaN

@@ -139,11 +139,13 @@ class TechnicalIndicators:
             df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=period)
         else:
             # Базовая реализация ATR
-            high_low = df['High'] - df['Low']
-            high_close_prev = np.abs(df['High'] - df['Close'].shift())
-            low_close_prev = np.abs(df['Low'] - df['Close'].shift())
+            high_low = (df['High'] - df['Low']).abs()
+            high_close_prev = (df['High'] - df['Close'].shift(1)).abs()
+            low_close_prev = (df['Low'] - df['Close'].shift(1)).abs()
             tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
-            df['ATR'] = tr.rolling(window=period).mean()
+            # Wilder ATR: экспоненциальное сглаживание с alpha=1/period, adjust=False (без утечек)
+            # min_periods=period: первые <period> значений будут NaN
+            df['ATR'] = tr.ewm(alpha=1.0 / float(period), adjust=False, min_periods=period).mean()
         
         return df
     

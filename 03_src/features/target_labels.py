@@ -77,7 +77,7 @@ def create_bhs_labels(
     atr_period: int = 14,
     eps_atr_multiplier: float = 0.2,
     spread: Optional[Union[float, int, pd.Series]] = None,
-    return_debug: bool = True,
+    return_debug: bool = False,
 ) -> pd.DataFrame:
     """
     Создаёт DataFrame с колонкой целевой переменной y_bhs (2/1/0) по правилу buy/hold/sell.

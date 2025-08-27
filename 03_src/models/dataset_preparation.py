@@ -64,7 +64,7 @@ def prepare_labeled_dataset(
         df_ohlc["Time"] = pd.to_datetime(df_ohlc["Time"]) 
         df_ohlc = df_ohlc.set_index("Time").sort_index()
 
-    # Создаём метки по функции
+    # Создаём метки по функции: ATR считается внутри из OHLC (Wilder), фичу f_atr_14 не требуем
     labels = create_bhs_labels(
         close=df_ohlc["Close"],
         df_ohlc=df_ohlc,
@@ -72,7 +72,8 @@ def prepare_labeled_dataset(
         atr_period=atr_period,
         eps_atr_multiplier=eps_atr_multiplier,
         spread=spread,
-        return_debug=True,
+        # Не сохраняем отладочные колонки в итоговый датасет
+        return_debug=False,
     )
 
     # Совмещаем по индексу
@@ -80,6 +81,7 @@ def prepare_labeled_dataset(
     # Обрезаем хвост без меток (последние H баров)
     df_merged = df_merged[df_merged["y_bhs"].notna()].copy()
     df_merged["y_bhs"] = df_merged["y_bhs"].astype("Int8")
+
 
     target_fp = project_root / (save_path or features_path.replace(".parquet", "_labeled.parquet"))
     target_fp.parent.mkdir(parents=True, exist_ok=True)

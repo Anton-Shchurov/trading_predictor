@@ -17,12 +17,10 @@ time_series_cv:
   n_splits: 5
   max_train_size: null
   test_size: null
-  gap: 0
+  gap: 5
 
 artifacts:
   save_cv_indices: true
-  cv_indices_path: 06_reports/cv_indices.json
   save_split_dates: true
-  split_dates_path: 06_reports/split_dates.yml
 
 
