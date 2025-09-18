@@ -1,28 +1,26 @@
 version: 1
-task: multiclass_bhs
+task: binary
 classes:
   - sell
-  - hold
   - buy
 
 metrics:
-  primary: f1_macro
+  primary: f1
   others:
     - balanced_accuracy
     - accuracy
-    - mlogloss
+    - logloss
 
 common:
   random_state: 42
   early_stopping_rounds: 50
-  eval_metric: mlogloss
+  eval_metric: logloss
 
 models:
   xgboost:
     enabled: true
     params:
-      objective: multi:softprob
-      num_class: 3
+      objective: binary:logistic
       learning_rate: 0.05
       n_estimators: 2000
       max_depth: 6
@@ -31,15 +29,15 @@ models:
       tree_method: hist
       reg_lambda: 1.0
       reg_alpha: 0.0
+      eval_metric: logloss
     fit:
       verbose: false
 
   lightgbm:
     enabled: true
     params:
-      objective: multiclass
-      num_class: 3
-      metric: multi_logloss
+      objective: binary
+      metric: binary_logloss
       learning_rate: 0.05
       n_estimators: 5000
       num_leaves: 63
@@ -55,7 +53,7 @@ models:
   catboost:
     enabled: true
     params:
-      loss_function: MultiClass
+      loss_function: Logloss
       learning_rate: 0.05
       iterations: 5000
       depth: 6

@@ -6,7 +6,7 @@
 # =============================================================================
 technical_indicators:
   # Exponential Moving Averages
-  ema_periods: [9, 12, 21, 50, 200]
+  ema_periods: [10, 20, 50, 200]
   
   # MACD параметры
   macd_params:
@@ -138,11 +138,14 @@ lag_features:
 # ОБЩИЕ НАСТРОЙКИ ПАЙПЛАЙНА
 # =============================================================================
 pipeline_settings:
-  # Входные данные
+  # Входные данные (будет переопределено через dataset.active/items)
   input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
   
   # Выходной файл
   output_file: "01_data/processed/eurusd_features.parquet"
+  
+  # Активный набор признаков (tier-1 | tier-2)
+  feature_set: tier-1
   
   # Параметры сохранения Parquet
   parquet_settings:
@@ -169,11 +172,62 @@ pipeline_settings:
     log_file: "05_logs/feature_engineering.log"
 
 # =============================================================================
+# НАБОРЫ ПРИЗНАКОВ (FEATURE SETS)
+# =============================================================================
+feature_sets:
+  tier-1:
+    include_patterns:
+      - 'EMA_*'
+      - 'RSI'
+      - 'MACD*'
+      - 'ROC_*'
+      - 'ZScore_*'
+      - 'Close_Lag_*'
+      - 'Volume_Lag_*'
+      - 'BB_*'
+      - 'ATR'
+      - 'OBV'
+    exclude_patterns: []
+
+  tier-2:
+    inherit_from: tier-1
+    include_patterns:
+      - 'Rolling_*'
+      - 'Price_Position_*'
+      - 'Realized_Vol_*'
+      - 'Parkinson_Vol_*'
+      - 'GK_Vol_*'
+      - 'Trend_*'
+      - 'Autocorr_*'
+      - 'Close_Diff_*'
+      - 'Close_PctDiff_*'
+      - 'Close_Ratio_*'
+      - 'Close_RollingLag_*'
+      - 'Volatility_*'
+      - 'VPT*'
+      - 'VWAP_*'
+      - 'Close_Volume_CrossLag_*'
+      - 'CCI'
+      - 'ADX'
+      - 'DI_*'
+      - 'PSAR'
+      - 'AD'
+      - 'CMF'
+
+# =============================================================================
+# ЦЕЛЕВАЯ ПЕРЕМЕННАЯ
+# =============================================================================
+target:
+  type: binary_buy_sell
+  name: y_bs
+  horizon: 5
+
+# =============================================================================
 # МЕТАДАННЫЕ И ОПИСАНИЯ
 # =============================================================================
 metadata:
-  version: "1.0.0"
-  created_date: "2024-12-19"
+  version: "1.1.1"
+  created_date: "2025-09-18"
   description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
   
   # Ожидаемые колонки входных данных (стандартизированные имена)
@@ -181,10 +235,10 @@ metadata:
   
   # Примерное количество создаваемых признаков
   estimated_features:
-    technical_indicators: 35
-    statistical_features: 55
-    lag_features: 120
-    total: 210
+    technical_indicators: 22
+    statistical_features: 50
+    lag_features: 110
+    total: 182
   
   # Требуемые библиотеки
   required_libraries:
@@ -193,6 +247,21 @@ metadata:
     - "scipy>=1.9.0"
     - "pandas-ta>=0.3.14b0"
     - "pyarrow>=12.0.0"
+
+# =============================================================================
+# РЕЕСТР ДАТАСЕТОВ
+# =============================================================================
+dataset:
+  # Активный ключ датасета из items
+  active: eurusd_h1_oanda_2010_2024
+  # Список датасетов
+  items:
+    eurusd_h1_oanda_2010_2024:
+      name: "EURUSD H1 OANDA (2010–2024)"
+      path: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
+      symbol: "EURUSD"
+      timeframe: "H1"
+      vendor: "OANDA"
 
 # =============================================================================
 # ПРОФИЛИ КОНФИГУРАЦИИ
@@ -214,11 +283,3 @@ profiles:
   full:
     # Использует все настройки выше
     inherit_from: "default"
-  
-  # Экспериментальный профиль
-  experimental:
-    technical_indicators:
-      ema_periods: [5, 8, 13, 21, 34, 55, 89, 144, 233]  # Fibonacci
-    statistical_features:
-      rolling_windows: [8, 13, 21, 34, 55]
-      trend_windows: [13, 21, 34]
