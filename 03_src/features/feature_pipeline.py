@@ -1,9 +1,8 @@
 """
 Главный пайплайн для Feature Engineering.
-
 Объединяет все модули создания признаков и обеспечивает:
 - Загрузку и валидацию данных
-- Последовательное применение всех типов фич
+- Декларативное создание признаков на основе графа зависимостей (DAG)
 - Обработку пропущенных значений
 - Сохранение результатов в различных форматах
 - Детальное логирование процесса
@@ -14,7 +13,8 @@ import numpy as np
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Any
+from collections import deque
 import warnings
 import re
 import fnmatch
@@ -29,9 +29,9 @@ class FeatureEngineeringPipeline:
     """
     Главный класс для создания всех признаков.
     
-    Координирует работу всех модулей создания признаков,
-    обеспечивает загрузку конфигурации, валидацию данных
-    и сохранение результатов.
+    Координирует работу всех модулей-калькуляторов,
+    обеспечивает загрузку конфигурации, строит и выполняет
+    граф зависимостей признаков, валидирует данные и сохраняет результаты.
     """
     
     def __init__(self, config_path: Optional[str] = None, profile: str = "full"):
@@ -40,16 +40,17 @@ class FeatureEngineeringPipeline:
         
         Args:
             config_path: Путь к файлу конфигурации
-            profile: Профиль конфигурации ("quick", "full", "experimental")
+            profile: Профиль конфигурации ("quick", "full")
         """
         self.profile = profile
         self.config = self._load_config(config_path)
         self.logger = self._setup_logging()
         
-        # Инициализация модулей
+        # Инициализация калькуляторов и регистрация методов
         self.technical_indicators = TechnicalIndicators()
         self.statistical_features = StatisticalFeatures()
         self.lag_features = LagFeatures()
+        self._method_registry = self._register_methods()
         
         # Статистика выполнения
         self.stats = {
@@ -59,7 +60,26 @@ class FeatureEngineeringPipeline:
             'processing_time': 0,
             'data_shape': (0, 0)
         }
-    
+
+    def _register_methods(self) -> Dict[str, Any]:
+        """Собирает все публичные `calculate_*` методы из калькуляторов в один словарь."""
+        registry = {}
+        calculators = [
+            self.technical_indicators,
+            self.statistical_features,
+            self.lag_features
+        ]
+        for calc in calculators:
+            for method_name in dir(calc):
+                if method_name.startswith('calculate_'):
+                    key = method_name.replace('calculate_', '')
+                    registry[key] = getattr(calc, method_name)
+        
+        # Добавляем специальные/внешние методы
+        registry['binary_target'] = create_binary_labels
+
+        return registry
+
     def _load_config(self, config_path: Optional[str] = None) -> Dict:
         """Загружает конфигурацию из YAML файла."""
         if config_path is None:
@@ -87,10 +107,10 @@ class FeatureEngineeringPipeline:
         
         except FileNotFoundError:
             print(f"Warning: Config file not found at {config_path}. Using default configuration.")
-            return self._get_default_config()
+            return {}
         except Exception as e:
             print(f"Error loading config: {e}. Using default configuration.")
-            return self._get_default_config()
+            return {}
     
     def _get_project_root(self) -> Path:
         """Возвращает корневую папку проекта (относительно этого файла)."""
@@ -160,27 +180,23 @@ class FeatureEngineeringPipeline:
     def _filter_columns_by_feature_set(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Отбирает колонки по активному набору признаков:
-        - Всегда сохраняет 'Close' и целевую колонку (если есть)
-        - Из OHLCV сохраняется только 'Close'
+        - Всегда сохраняет 'close' и целевую колонку (если есть)
         - Остальные колонки фильтруются по include/exclude маскам набора
         """
         fs_name, patterns = self._resolve_feature_set()
-        
-        # Базовые колонки: только Close
+        if not fs_name:
+            return df # Если feature_set не задан, возвращаем все сгенерированные признаки
+
         selected_columns: List[str] = []
-        base_keep = {'Close'}
         
-        # Добавляем целевую колонку если она уже есть в данных
-        tgt_cfg = self.config.get('target') or {}
-        target_name = tgt_cfg.get('name', 'y_bs')
+        # Базовые колонки, которые всегда сохраняем
+        base_keep = {'close'}
+        target_name = (self.config.get('feature_definitions', {}).get('y_bs') or {}).get('name', 'y_bs')
         if target_name in df.columns:
             base_keep.add(target_name)
-        
-        # Колонки OHLCV, которые исключаем (кроме Close)
-        ohlcv_exclude = {'Open', 'High', 'Low', 'Volume'}
-        
-        include_patterns = patterns['include'] if fs_name else ['*']
-        exclude_patterns = patterns['exclude'] if fs_name else []
+
+        include_patterns = patterns.get('include', [])
+        exclude_patterns = patterns.get('exclude', [])
         
         def match_any(name: str, pats: List[str]) -> bool:
             return any(fnmatch.fnmatch(name, p) for p in pats) if pats else False
@@ -189,33 +205,14 @@ class FeatureEngineeringPipeline:
             if col in base_keep:
                 selected_columns.append(col)
                 continue
-            if col in ohlcv_exclude:
-                continue
-            # Остальные колонки — это признаки
+            
             if match_any(col, include_patterns) and not match_any(col, exclude_patterns):
                 selected_columns.append(col)
         
-        # Гарантируем порядок столбцов как в исходном df
-        filtered = df.loc[:, [c for c in df.columns if c in selected_columns]]
-        self.logger.info(f"Feature set applied: {fs_name or 'all'} | Columns kept: {len(filtered.columns)}/{len(df.columns)}")
+        filtered = df[selected_columns]
+        self.logger.info(f"Feature set applied: '{fs_name}' | Columns kept: {len(filtered.columns)}/{len(df.columns)}")
         return filtered
-    
-    def _get_default_config(self) -> Dict:
-        """Возвращает конфигурацию по умолчанию."""
-        return {
-            'technical_indicators': {},
-            'statistical_features': {},
-            'lag_features': {},
-            'pipeline_settings': {
-                'input_file': "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv",
-                'output_file': "01_data/processed/eurusd_features.parquet",
-                'output_demo_file': "01_data/processed/eurusd_features_demo.parquet",
-                'demo_size': 10000,
-                'missing_values': {'strategy': 'keep_all', 'min_periods_required': 200, 'drop_all_nan_only': False},
-                'validation': {'check_duplicates': True, 'check_sorting': True, 'max_missing_ratio': 0.1}
-            }
-        }
-    
+
     def _setup_logging(self) -> logging.Logger:
         """Настраивает логирование."""
         logger = logging.getLogger('FeatureEngineering')
@@ -382,138 +379,109 @@ class FeatureEngineeringPipeline:
         
         return mapping
     
-    def create_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def _execute_declarative_pipeline(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Создает признаки строго по параметрам YAML-конфига.
+        Строит и выполняет DAG генерации признаков на основе `feature_definitions`.
+        """
+        self.logger.info("Starting declarative feature pipeline execution...")
+        definitions = self.config.get('feature_definitions', {})
+        if not definitions:
+            self.logger.warning("`feature_definitions` not found in config. No features will be generated.")
+            return df
+
+        # 1. Построение графа зависимостей и определение порядка выполнения
+        all_deps = {name: set(defn.get('needs', [])) | set(defn.get('inputs', [])) for name, defn in definitions.items()}
+        graph = {name: deps for name, deps in all_deps.items() if name in definitions}
+        in_degree = {name: 0 for name in graph}
+        adj = {name: [] for name in graph}
+
+        for u, deps in graph.items():
+            for v_dep in deps:
+                # v_dep может быть внешней зависимостью (напр. 'Close'), которой нет в графе
+                if v_dep in adj:
+                    adj[v_dep].append(u)
+                    in_degree[u] += 1
         
-        Args:
-            df: DataFrame с исходными данными (OHLCV).
+        queue = deque([name for name in graph if in_degree[name] == 0])
+        execution_order = []
+        while queue:
+            u = queue.popleft()
+            execution_order.append(u)
+            for v_neighbor in adj.get(u, []):
+                in_degree[v_neighbor] -= 1
+                if in_degree[v_neighbor] == 0:
+                    queue.append(v_neighbor)
+
+        if len(execution_order) != len(graph):
+            unprocessed = set(graph.keys()) - set(execution_order)
+            raise RuntimeError(f"Cycle detected in feature dependency graph. Unprocessed nodes: {unprocessed}")
             
-        Returns:
-            DataFrame с исходными колонками и добавленными техническими,
-            статистическими и лаговыми признаками согласно конфигу.
-        """
-        self.logger.info("Starting config-driven feature creation...")
+        self.logger.info(f"Execution order determined for {len(execution_order)} features.")
 
-        start_time = pd.Timestamp.now()
-        original_columns = list(df.columns)
+        # 2. Выполнение графа
+        results_cache = {col.lower(): df[col] for col in df.columns}
+        results_cache.update({col: df[col] for col in df.columns}) # Для `High`, `Low`
+        results_cache['index'] = df.index
 
-        # Требуем базовые колонки
-        base_required = ['Open', 'High', 'Low', 'Close', 'Volume']
-        missing_base = [c for c in base_required if c not in df.columns]
-        if missing_base:
-            raise ValueError(f"Missing required columns for feature engineering: {missing_base}")
+        for name in execution_order:
+            if name in results_cache: continue
+            
+            defn = definitions[name]
+            method_name = defn.get('method')
+            params = defn.get('params', {})
+            
+            args_list = [results_cache[dep] for dep in defn.get('inputs', []) + defn.get('needs', [])]
 
-        # Конфигурации для блоков
-        ti_cfg = self.config.get('technical_indicators', {}) or {}
-        sf_cfg = self.config.get('statistical_features', {}) or {}
-        lf_cfg = self.config.get('lag_features', {}) or {}
+            self.logger.debug(f"Computing feature '{name}' with method '{method_name}'")
 
-        # 1) Технические индикаторы
-        try:
-            df = self.technical_indicators.add_all(df, ti_cfg)
-        except Exception as e:
-            self.logger.error(f"Failed to compute technical indicators: {e}")
-            raise
+            if method_name == 'formula':
+                formula = defn['formula']
+                # np.nan и pd.NA доступны в eval контексте
+                local_scope = {'nan': np.nan, 'NA': pd.NA}
+                eval_locals = {**results_cache, **local_scope}
+                try:
+                    result = pd.eval(formula, engine='python', local_dict=eval_locals)
+                except Exception as exc:
+                    self.logger.debug(
+                        "pd.eval failed for feature '%s' with formula '%s': %s. Falling back to python eval.",
+                        name,
+                        formula,
+                        exc,
+                    )
+                    safe_globals = {'np': np, 'pd': pd, 'nan': np.nan, 'NA': pd.NA}
+                    result = eval(formula, safe_globals, eval_locals)
 
-        # 2) Статистические признаки
-        try:
-            df = self.statistical_features.add_all(df, sf_cfg)
-        except Exception as e:
-            self.logger.error(f"Failed to compute statistical features: {e}")
-            raise
 
-        # 3) Лаг-признаки
-        try:
-            df = self.lag_features.add_all(df, lf_cfg)
-        except Exception as e:
-            self.logger.error(f"Failed to compute lag features: {e}")
-            raise
 
-        # Очистка бесконечностей и обработка пропусков
-        df = df.replace([np.inf, -np.inf], np.nan)
-        df = self._handle_missing_values(df)
-
-        # Обновление статистики
-        end_time = pd.Timestamp.now()
-        created_count = len(df.columns) - len(original_columns)
-        self.stats.update({
-            'created_features': max(created_count, 0),
-            'total_columns': len(df.columns),
-            'processing_time': (end_time - start_time).total_seconds(),
-            'data_shape': df.shape
-        })
-
-        self.logger.info(
-            f"Config-driven features created in {self.stats['processing_time']:.2f} seconds"
-        )
-        self.logger.info(f"Final dataset shape (with features): {df.shape}")
-
-        return df
-    
-    def _handle_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Обрабатывает пропущенные значения согласно конфигурации."""
-        self.logger.info("Handling missing values...")
-        
-        missing_config = self.config.get('pipeline_settings', {}).get('missing_values', {})
-        strategy = missing_config.get('strategy', 'drop')
-        min_periods = missing_config.get('min_periods_required', 200)
-        drop_all_nan_only = missing_config.get('drop_all_nan_only', False)
-        
-        initial_shape = df.shape
-        initial_missing = df.isnull().sum().sum()
-        
-        self.logger.info(f"Initial missing values: {initial_missing:,} ({initial_missing/(df.shape[0]*df.shape[1])*100:.2f}%)")
-        
-        if strategy == 'keep_all':
-            # Не заполняем пропуски, сохраняем исходные NaN для последующей фильтрации на следующих этапах
-            self.logger.info("Preserving missing values (keep_all mode): no filling, no dropping at this stage")
-        elif strategy == 'drop':
-            if drop_all_nan_only:
-                # Удаляем только строки где ВСЕ значения NaN
-                before_rows = len(df)
-                df = df.dropna(how='all')
-                after_rows = len(df)
-                self.logger.info(f"Dropped {before_rows - after_rows} rows where ALL values were NaN")
-                
-                # Теперь удаляем строки где слишком много NaN в признаках (исключая исходные OHLCV)
-                original_cols = ['Open', 'High', 'Low', 'Close', 'Volume']
-                feature_cols = [col for col in df.columns if col not in original_cols]
-                
-                if feature_cols:
-                    # Удаляем строки где более 50% признаков NaN
-                    missing_threshold = len(feature_cols) * 0.5
-                    before_rows = len(df)
-                    df = df[df[feature_cols].isnull().sum(axis=1) <= missing_threshold]
-                    after_rows = len(df)
-                    self.logger.info(f"Dropped {before_rows - after_rows} rows with >50% missing features")
+            elif method_name in self._method_registry:
+                func = self._method_registry[method_name]
+                # Специальная обработка для календарных фич, которым нужен индекс
+                if method_name in ['hour_sin', 'hour_cos', 'day_of_week']:
+                    result = func(index=results_cache['index'], **params)
+                else:
+                    result = func(*args_list, **params)
             else:
-                # Стандартное удаление всех строк с любыми NaN
-                df = df.dropna()
-        elif strategy == 'forward_fill':
-            # Заполнение вперед
-            df = df.fillna(method='ffill')
-            # Также заполняем ведущие NaN назад, чтобы не осталось пропусков в начале
-            df = df.fillna(method='bfill')
-        elif strategy == 'backward_fill':
-            # Заполнение назад
-            df = df.fillna(method='bfill')
-            df = df.fillna(method='ffill')
+                raise NotImplementedError(f"Method '{method_name}' not found in registry.")
+
+            results_cache[name] = result
         
-        # Убеждаемся, что у нас достаточно данных
-        if len(df) < min_periods:
-            self.logger.warning(f"Insufficient data after cleaning: {len(df)} < {min_periods}")
-        
-        dropped_rows = initial_shape[0] - df.shape[0]
-        final_missing = df.isnull().sum().sum()
-        
-        if dropped_rows > 0:
-            self.logger.info(f"Dropped {dropped_rows} rows with missing values")
-        
-        self.logger.info(f"Final missing values: {final_missing:,} ({final_missing/(df.shape[0]*df.shape[1])*100:.2f}%)")
-        
-        return df
-    
+        # 3. Сборка финального DataFrame
+        final_df = pd.DataFrame(index=df.index)
+        for name, defn in definitions.items():
+            if not defn.get('is_intermediate', False):
+                result = results_cache[name]
+                if isinstance(result, pd.DataFrame):
+                    # Для методов, возвращающих DataFrame (напр., MACD, target)
+                    # Если имя колонки совпадает с именем фичи, берем ее
+                    if name in result.columns:
+                       final_df[name] = result[name]
+                    else: # Иначе присоединяем весь DataFrame (для y_bs)
+                        final_df = final_df.join(result)
+                else:
+                    final_df[name] = result
+
+        return final_df
+
     def save_results(self, df: pd.DataFrame, 
                     output_path: Optional[str] = None) -> Tuple[str, Optional[str]]:
         """
@@ -522,7 +490,6 @@ class FeatureEngineeringPipeline:
         Args:
             df: DataFrame с признаками
             output_path: Путь для сохранения (опционально)
-            create_demo: Создавать ли демо-файл
             
         Returns:
             Кортеж (путь_к_полному_файлу, путь_к_демо_файлу)
@@ -594,44 +561,32 @@ class FeatureEngineeringPipeline:
         self.logger.info("STARTING FULL FEATURE ENGINEERING PIPELINE")
         self.logger.info("="*60)
         
+        start_time = pd.Timestamp.now()
+        
         try:
-            # 1. Загрузка данных
+            # 1. Загрузка и валидация данных
             df = self.load_data(input_path)
             
-            # 2. Создание признаков
-            df_with_features = self.create_features(df)
-
-            # 2.1 Создание целевой переменной (добавляем прямо в итоговый датасет)
-            tgt_cfg = (self.config.get('target') or {})
-            if tgt_cfg.get('type') == 'binary_buy_sell':
-                self.logger.info("Creating binary target y_bs...")
-                labels = create_binary_labels(
-                    close=df_with_features['Close'],
-                    horizon=int(tgt_cfg.get('horizon', 5)),
-                    return_debug=False,
-                )
-                target_name = tgt_cfg.get('name', 'y_bs')
-                # Присоединяем и приводим тип
-                df_with_features[target_name] = labels['y_bs']
-                # Удаляем хвостовые NaN по целевой (последние H баров)
-                before_rows = len(df_with_features)
-                df_with_features = df_with_features[df_with_features[target_name].notna()].copy()
-                df_with_features[target_name] = df_with_features[target_name].astype('Int8')
-                self.logger.info(f"Target '{target_name}' created. Dropped {before_rows - len(df_with_features)} tail rows without label")
+            # 2. Декларативное создание признаков
+            df_with_features = self._execute_declarative_pipeline(df)
             
             # 3. Фильтрация признаков по активному набору
             df_selected = self._filter_columns_by_feature_set(df_with_features)
 
+            end_time = pd.Timestamp.now()
+            
             # 3.1 Обновляем статистику под выбранный набор
-            tgt_cfg = (self.config.get('target') or {})
-            target_name = tgt_cfg.get('name', 'y_bs')
-            base_cols = {'Close'}
+            base_cols = {'close'}
+            target_name = 'y_bs' # Имя жестко задано в декларативном конфиге
             if target_name in df_selected.columns:
                 base_cols.add(target_name)
+
             created_included = len([c for c in df_selected.columns if c not in base_cols])
             self.stats['created_features'] = created_included
             self.stats['total_columns'] = len(df_selected.columns)
             self.stats['data_shape'] = df_selected.shape
+            self.stats['processing_time'] = (end_time - start_time).total_seconds()
+
 
             # 4. Сохранение результатов
             full_path, demo_path = self.save_results(df_selected, output_path)
@@ -643,10 +598,10 @@ class FeatureEngineeringPipeline:
             self.logger.info("PIPELINE COMPLETED SUCCESSFULLY!")
             self.logger.info("="*60)
             
-            return df_with_features, self.stats
+            return df_selected, self.stats
             
         except Exception as e:
-            self.logger.error(f"Pipeline failed: {e}")
+            self.logger.error(f"Pipeline failed: {e}", exc_info=True)
             raise
     
     def _log_final_stats(self, df: pd.DataFrame):
@@ -663,7 +618,10 @@ class FeatureEngineeringPipeline:
         
         # Информация о пропущенных значениях
         missing_count = df.isnull().sum().sum()
-        missing_ratio = missing_count / (df.shape[0] * df.shape[1])
+        if df.size > 0:
+            missing_ratio = missing_count / df.size
+        else:
+            missing_ratio = 0
         self.logger.info(f"Missing values: {missing_count} ({missing_ratio:.2%})")
         
         self.logger.info("="*50)
