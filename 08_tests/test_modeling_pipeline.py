@@ -2,12 +2,13 @@ import os
 import sys
 from pathlib import Path
 import pytest
+import pandas as pd
 
 # Добавляем путь к исходникам
 project_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(project_root / '03_src'))
 
-from models import prepare_labeled_dataset, run_modeling_pipeline  # noqa: E402
+from models import run_modeling_pipeline  # noqa: E402
 
 
 @pytest.mark.slow

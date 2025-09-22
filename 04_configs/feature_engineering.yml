@@ -2,147 +2,148 @@
 # Все параметры для создания технических и статистических признаков
 
 # =============================================================================
-# ТЕХНИЧЕСКИЕ ИНДИКАТОРЫ
+# ДЕКЛАРАТИВНОЕ ОПРЕДЕЛЕНИЕ ПРИЗНАКОВ
 # =============================================================================
-technical_indicators:
-  # Exponential Moving Averages
-  ema_periods: [9, 12, 21, 50, 200]
-  
-  # MACD параметры
-  macd_params:
-    fast: 12
-    slow: 26
-    signal: 9
-  
-  # RSI период
-  rsi_period: 14
-  
-  # Stochastic Oscillator
-  stoch_params:
-    k_period: 14
-    d_period: 3
-  
-  # Commodity Channel Index
-  cci_period: 20
-  
-  # Average True Range
-  atr_period: 14
-  
-  # Bollinger Bands
-  bb_params:
-    period: 20
-    std_dev: 2.0
-  
-  # Keltner Channel
-  kc_params:
-    ema_period: 20
-    atr_period: 14
-    multiplier: 2.0
-  
-  # Donchian Channel
-  donchian_period: 20
-  
-  # Momentum
-  momentum_period: 10
-  
-  # Chaikin Money Flow
-  cmf_period: 20
-  
-  # Parabolic SAR
-  psar_params:
-    af_initial: 0.02
-    af_max: 0.2
-  
-  # Average Directional Index
-  adx_period: 14
+feature_definitions:
+  # ---------------------------------------------------------------------------
+  # Базовые и промежуточные признаки (сырые расчеты)
+  # ---------------------------------------------------------------------------
+  close: { method: 'identity', inputs: ['Close'] }
 
-# =============================================================================
-# СТАТИСТИЧЕСКИЕ ПРИЗНАКИ
-# =============================================================================
-statistical_features:
-  # Rate of Change периоды
-  roc_periods: [1, 5, 10, 20]
+  _ema_10_raw: { method: 'ema', inputs: ['close'], params: { period: 10 }, is_intermediate: true }
+  _ema_20_raw: { method: 'ema', inputs: ['close'], params: { period: 20 }, is_intermediate: true }
+  _ema_50_raw: { method: 'ema', inputs: ['close'], params: { period: 50 }, is_intermediate: true }
+  _ema_200_raw: { method: 'ema', inputs: ['close'], params: { period: 200 }, is_intermediate: true }
+  _atr_14_raw: { method: 'atr', inputs: ['High', 'Low', 'close'], params: { period: 14 }, is_intermediate: true }
+  _atr_20_raw: { method: 'atr', inputs: ['High', 'Low', 'close'], params: { period: 20 }, is_intermediate: true }
+  _macd_raw: { method: 'macd', inputs: ['close'], params: { fast: 12, slow: 26, signal: 9 }, is_intermediate: true }
+  _adx_raw: { method: 'adx', inputs: ['High', 'Low', 'close'], params: { period: 14 }, is_intermediate: true }
+  _bbands_raw: { method: 'bbands', inputs: ['close'], params: { period: 20, std_dev: 2.0 }, is_intermediate: true }
+  _kc_raw: { method: 'kc', inputs: ['High', 'Low', 'close'], needs: ['_atr_20_raw'], params: { ema_period: 20, atr_period: 20 }, is_intermediate: true }
+  _donchian_raw: { method: 'donchian', inputs: ['High', 'Low'], params: { period: 20 }, is_intermediate: true }
+  _log_ret_1_raw: { method: 'log_return', inputs: ['close'], params: { period: 1 }, is_intermediate: true }
+  _vwap_5_raw: { method: 'vwap', inputs: ['close', 'Volume'], params: { period: 5 }, is_intermediate: true }
+  _psar_raw: { method: 'psar', inputs: ['High', 'Low', 'close'], params: { af_initial: 0.02, af_max: 0.2 }, is_intermediate: true }
   
-  # Rolling statistics окна
-  rolling_windows: [5, 10, 20, 50]
-  
-  # Z-Score окна
-  zscore_windows: [5, 10, 20]
-  
-  # Skewness/Kurtosis окна
-  skew_kurt_windows: [10, 20, 50]
-  
-  # Price position окна
-  position_windows: [10, 20, 50]
-  
-  # Volatility окна
-  volatility_windows: [10, 20, 50]
-  
-  # Trend strength окна
-  trend_windows: [10, 20, 50]
-  
-  # Autocorrelation лаги
-  autocorr_lags: [1, 5, 10]
-  
-  # Entropy окна
-  entropy_windows: [10, 20]
+  # ---------------------------------------------------------------------------
+  # Финальные признаки (f_*)
+  # ---------------------------------------------------------------------------
+  # EMA
+  f_ema_10: { method: 'identity', needs: ['_ema_10_raw'] }
+  f_ema_20: { method: 'identity', needs: ['_ema_20_raw'] }
+  f_ema_50: { method: 'identity', needs: ['_ema_50_raw'] }
+  f_ema_200: { method: 'identity', needs: ['_ema_200_raw'] }
 
-# =============================================================================
-# ЛАГ-ПРИЗНАКИ
-# =============================================================================
-lag_features:
-  # Колонки для создания лагов цен
-  price_columns: ['Close', 'Open', 'High', 'Low']
+  # Тренд
+  f_close_minus_ema_20_over_atr14:
+    method: 'formula'
+    needs: ['_ema_20_raw', '_atr_14_raw']
+    formula: "(close - _ema_20_raw) / _atr_14_raw.replace(0, nan)"
+  f_ema20_slope:
+    method: 'formula'
+    needs: ['_ema_20_raw']
+    formula: "_ema_20_raw.diff()"
+  f_macd_12_26_9_hist:
+    method: 'formula'
+    needs: ['_macd_raw']
+    formula: "_macd_raw['MACDh_12_26_9']"
+  f_di_diff_14:
+    method: 'formula'
+    needs: ['_adx_raw']
+    formula: "_adx_raw['DMP_14'] - _adx_raw['DMN_14']"
+  f_adx_14:
+    method: 'formula'
+    needs: ['_adx_raw']
+    formula: "_adx_raw['ADX_14']"
+
+  # Импульс
+  f_rsi_5: { method: 'rsi', inputs: ['close'], params: { period: 5 } }
+  f_rsi_14: { method: 'rsi', inputs: ['close'], params: { period: 14 } }
+  f_roc_5: { method: 'roc', inputs: ['close'], params: { period: 5 } }
   
-  # Лаговые периоды для цен
-  price_lags: [1, 2, 5, 10, 20, 24]
+  # Волатильность и диапазон
+  f_atr_14_pct:
+    method: 'formula'
+    needs: ['_atr_14_raw']
+    formula: "_atr_14_raw / close.replace(0, nan)"
+  f_return_std_20:
+    method: 'formula'
+    needs: ['_log_ret_1_raw']
+    formula: "_log_ret_1_raw.rolling(window=20).std()"
+  f_range_over_atr:
+    method: 'formula'
+    inputs: ['High', 'Low']
+    needs: ['_atr_14_raw']
+    formula: "(High - Low) / _atr_14_raw.replace(0, nan)"
+  f_donchian_pos_20:
+    method: 'formula'
+    needs: ['_donchian_raw']
+    formula: "(close - _donchian_raw['DCL_20_20']) / (_donchian_raw['DCU_20_20'] - _donchian_raw['DCL_20_20']).replace(0, nan)"
+  f_keltner_pos_20:
+    method: 'formula'
+    needs: ['_kc_raw']
+    formula: "(close - _kc_raw.iloc[:, 1]) / (_kc_raw.iloc[:, 2] - _kc_raw.iloc[:, 0]).replace(0, nan)"
+  f_percentB_20:
+    method: 'formula'
+    needs: ['_bbands_raw']
+    formula: "(_bbands_raw['BBP_20_2.0'] / 100)" # pandas-ta возвращает в %, нам нужно 0-1
+  f_bandwidth_20:
+    method: 'formula'
+    needs: ['_bbands_raw']
+    formula: "(_bbands_raw['BBB_20_2.0'] / 100)" # pandas-ta возвращает в %, нам нужно 0-1
+
+  # Доходности и статистика
+  f_ret_1: { method: 'log_return', inputs: ['close'], params: { period: 1 } }
+  f_ret_6: { method: 'log_return', inputs: ['close'], params: { period: 6 } }
+  f_ret_12: { method: 'log_return', inputs: ['close'], params: { period: 12 } }
+  f_ret_24: { method: 'log_return', inputs: ['close'], params: { period: 24 } }
+  f_ret_1_z20:
+    method: 'formula'
+    needs: ['f_ret_1']
+    formula: "(f_ret_1 - f_ret_1.rolling(window=20).mean()) / f_ret_1.rolling(window=20).std().replace(0, nan)"
+  f_rolling_mean_ret_5:
+    method: 'formula'
+    needs: ['f_ret_1']
+    formula: "f_ret_1.rolling(window=5).mean()"
+  f_rolling_std_ret_5:
+    method: 'formula'
+    needs: ['f_ret_1']
+    formula: "f_ret_1.rolling(window=5).std()"
+  f_zscore_close_50: { method: 'zscore', inputs: ['close'], params: { window: 50 } }
+
+  # Прочие
+  f_vwap_dev_over_atr14:
+    method: 'formula'
+    needs: ['_vwap_5_raw', '_atr_14_raw']
+    formula: "(close - _vwap_5_raw) / _atr_14_raw.replace(0, nan)"
+  f_psar_trend:
+    method: 'formula'
+    needs: ['_psar_raw']
+    formula: "(close > _psar_raw).astype('Int8')"
   
-  # Лаговые периоды для объема
-  volume_lags: [1, 2, 5, 10, 20, 24]
-  
-  # Периоды для расчета доходностей
-  return_periods: [1, 5, 10, 20]
-  
-  # Лаги для доходностей
-  return_lags: [1, 2, 5, 10]
-  
-  # Лаги для разностей
-  diff_lags: [1, 5, 10, 20]
-  
-  # Лаги для отношений
-  ratio_lags: [1, 5, 10, 20]
-  
-  # Периоды для скользящих лагов
-  rolling_lag_periods: [1, 5, 10]
-  
-  # Окна для скользящих лагов
-  rolling_lag_windows: [3, 5]
-  
-  # Лаги волатильности
-  volatility_lags: [1, 5, 10, 20]
-  
-  # Лаги для взаимодействия цена-объем
-  volume_price_lags: [1, 5, 10]
-  
-  # Колонки для кросс-лаговых фич
-  cross_lag_columns: ['Volume']
-  
-  # Лаги для кросс-корреляций
-  cross_lags: [1, 5, 10]
-  
-  # Сезонные периоды (для часовых данных: 24ч = сутки)
-  # 168ч (неделя) удален из-за слишком большого количества NaN в начале
-  seasonal_periods: [24]
+  # Календарные
+  f_hour_of_day_sin: { method: 'hour_sin' }
+  f_hour_of_day_cos: { method: 'hour_cos' }
+  f_dow: { method: 'day_of_week' }
+
+  # Целевая переменная
+  y_bs: { method: 'binary_target', inputs: ['close'], params: { horizon: 5 } }
 
 # =============================================================================
 # ОБЩИЕ НАСТРОЙКИ ПАЙПЛАЙНА
 # =============================================================================
 pipeline_settings:
-  # Входные данные
+  # Входные данные (будет переопределено через dataset.active/items)
   input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
   
   # Выходной файл
   output_file: "01_data/processed/eurusd_features.parquet"
+  # Директория и шаблон имени выходного файла (для детерминированного пути)
+  output_dir: "01_data/processed"
+  output_pattern: "{symbol_lower}_{feature_set}_features.parquet"
+  
+  # Активный набор признаков (fset-1 | fset-2)
+  feature_set: fset-4
   
   # Параметры сохранения Parquet
   parquet_settings:
@@ -166,14 +167,76 @@ pipeline_settings:
   # Настройки логирования
   logging:
     level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-    log_file: "05_logs/feature_engineering.log"
 
+# =============================================================================
+# НАБОРЫ ПРИЗНАКОВ (FEATURE SETS)
+# =============================================================================
+feature_sets:
+  fset-1:
+    include_patterns:
+      - 'f_di_diff_14'
+      - 'f_vwap_dev_over_atr14'
+      - 'f_donchian_pos_20'
+      - 'f_rsi_14'
+      - 'f_zscore_close_50'
+      - 'close'
+      - 'f_hour_of_day_cos'
+      - 'f_rsi_5'
+      - 'f_roc_5'
+      - 'f_ema20_slope'
+      - 'f_hour_of_day_sin'
+      - 'f_ret_12'
+    exclude_patterns: []
+
+  fset-2:
+    inherit_from: fset-1
+    include_patterns:
+      - 'f_macd_12_26_9_hist'
+      - 'f_atr_14_pct'
+      - 'f_rolling_mean_ret_5'
+      - 'f_keltner_pos_20'
+      - 'f_bandwidth_20'
+      - 'f_psar_trend'
+      - 'f_ret_1_z20'
+      - 'f_range_over_atr'
+    exclude_patterns: []
+
+  fset-3:
+    include_patterns:
+      - 'close'
+      - 'f_macd_12_26_9_hist'
+      - 'f_di_diff_14'
+      - 'f_adx_14'
+      - 'f_rsi_14'
+      - 'f_atr_14_pct'
+      - 'f_return_std_20'
+      - 'f_range_over_atr'
+      - 'f_donchian_pos_20'
+      - 'f_bandwidth_20'
+      - 'f_ret_24'
+      - 'f_rolling_std_ret_5'
+      - 'f_zscore_close_50'
+      - 'f_vwap_dev_over_atr14'
+    exclude_patterns: []
+
+  fset-4:
+    inherit_from: fset-3
+    include_patterns:
+      - 'f_ema_50'
+      - 'f_ema_200'
+      - 'f_ema20_slope'
+      - 'f_rsi_5'
+      - 'f_roc_5'
+      - 'f_ret_12'
+      - 'f_psar_trend'    
+    exclude_patterns: []
+    
 # =============================================================================
 # МЕТАДАННЫЕ И ОПИСАНИЯ
 # =============================================================================
 metadata:
-  version: "1.0.0"
-  created_date: "2024-12-19"
+  version: "1.2.0"
+  created_date: "2025-09-21"
   description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
   
   # Ожидаемые колонки входных данных (стандартизированные имена)
@@ -181,10 +244,10 @@ metadata:
   
   # Примерное количество создаваемых признаков
   estimated_features:
-    technical_indicators: 35
-    statistical_features: 55
-    lag_features: 120
-    total: 210
+    technical_indicators: 22
+    statistical_features: 50
+    lag_features: 110
+    total: 182
   
   # Требуемые библиотеки
   required_libraries:
@@ -193,6 +256,21 @@ metadata:
     - "scipy>=1.9.0"
     - "pandas-ta>=0.3.14b0"
     - "pyarrow>=12.0.0"
+
+# =============================================================================
+# РЕЕСТР ДАТАСЕТОВ
+# =============================================================================
+dataset:
+  # Активный ключ датасета из items
+  active: eurusd_h1_oanda_2010_2024
+  # Список датасетов
+  items:
+    eurusd_h1_oanda_2010_2024:
+      name: "EURUSD H1 OANDA (2010–2024)"
+      path: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
+      symbol: "EURUSD"
+      timeframe: "H1"
+      vendor: "OANDA"
 
 # =============================================================================
 # ПРОФИЛИ КОНФИГУРАЦИИ
@@ -214,11 +292,3 @@ profiles:
   full:
     # Использует все настройки выше
     inherit_from: "default"
-  
-  # Экспериментальный профиль
-  experimental:
-    technical_indicators:
-      ema_periods: [5, 8, 13, 21, 34, 55, 89, 144, 233]  # Fibonacci
-    statistical_features:
-      rolling_windows: [8, 13, 21, 34, 55]
-      trend_windows: [13, 21, 34]

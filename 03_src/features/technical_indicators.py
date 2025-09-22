@@ -19,86 +19,82 @@ except ImportError:
 
 class TechnicalIndicators:
     """
-    Класс для создания технических индикаторов.
-    
-    Поддерживает создание всех основных технических индикаторов:
-    EMA, MACD, ADX, Parabolic SAR, RSI, Stochastic, CCI, Momentum, 
-    ATR, Keltner Channel, Bollinger Bands, Donchian Channel, 
-    OBV, Chaikin Money Flow, A/D Line.
+    Класс-калькулятор для технических индикаторов.
+    Предоставляет атомарные методы для вычисления индикаторов,
+    которые принимают на вход pd.Series и возвращают pd.Series или pd.DataFrame.
     """
-    
     def __init__(self):
         self.has_pandas_ta = HAS_PANDAS_TA
+
+    def calculate_ema(self, close_series: pd.Series, period: int) -> pd.Series:
+        """Расчёт EMA."""
+        if not self.has_pandas_ta:
+            return close_series.ewm(span=period, adjust=False, min_periods=period).mean()
+        return ta.ema(close_series, length=period)
+
+    def calculate_macd(self, close_series: pd.Series, fast: int, slow: int, signal: int) -> pd.DataFrame:
+        """Расчёт MACD, возвращает DataFrame с MACD, гистограммой и сигнальной линией."""
+        return ta.macd(close_series, fast=fast, slow=slow, signal=signal, append=False)
+
+    def calculate_rsi(self, close_series: pd.Series, period: int) -> pd.Series:
+        """Расчёт RSI."""
+        return ta.rsi(close_series, length=period, append=False)
+
+    def calculate_atr(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.Series:
+        """Расчёт ATR."""
+        return ta.atr(high, low, close, length=period, append=False)
+
+    def calculate_bbands(self, close_series: pd.Series, period: int, std_dev: float) -> pd.DataFrame:
+        """Расчёт Bollinger Bands. Возвращает DataFrame с линиями, шириной и позицией."""
+        return ta.bbands(close_series, length=period, std=std_dev, append=False)
     
-    def add_ema(self, df: pd.DataFrame, periods: List[int] = [9, 12, 21, 50, 200]) -> pd.DataFrame:
-        """Добавляет экспоненциальные скользящие средние (EMA).
+    def calculate_donchian(self, high: pd.Series, low: pd.Series, period: int) -> pd.DataFrame:
+        """Расчёт Donchian Channels."""
+        return ta.donchian(high, low, lower_length=period, upper_length=period, append=False)
 
-        Гарантирует устойчивость: при пустом DataFrame или отсутствии 'Close' — возвращает вход без ошибок.
-        """
-        if df is None or len(df) == 0:
-            return df
-        if 'Close' not in df.columns:
-            return df
-
-        df = df.copy()
-        close_series = df['Close']
-        for period in periods:
-            ema = close_series.ewm(span=period, adjust=False, min_periods=period).mean()
-            # Гарантируем: std(EMA) <= std(Close) на совпадающей выборке
-            mask = ema.notna()
-            try:
-                std_close = close_series.loc[mask].std()
-                std_ema = ema.loc[mask].std()
-            except Exception:
-                std_close = close_series.std()
-                std_ema = ema.std()
-
-            window = max(period, 2)
-            attempts = 0
-            while std_ema is not None and std_close is not None and std_ema > std_close and attempts < 5:
-                window = min(len(close_series), window * 2)
-                ema = ema.rolling(window=window, min_periods=1).mean()
-                std_ema = ema.loc[mask].std()
-                attempts += 1
-
-            df[f'EMA_{period}'] = ema
+    def calculate_kc(self, high: pd.Series, low: pd.Series, close: pd.Series, atr_series: pd.Series, ema_period: int, atr_period: int) -> pd.DataFrame:
+        """Расчёт Keltner Channels. Принимает pre-calculated ATR."""
+        if not self.has_pandas_ta:
+            ema = self.calculate_ema(close, ema_period)
+            kc_upper = ema + (2 * atr_series)
+            kc_lower = ema - (2 * atr_series)
+            return pd.DataFrame({'KC_Lower': kc_lower, 'KC_Middle': ema, 'KC_Upper': kc_upper})
+        
+        # pandas-ta не позволяет передать внешний ATR, поэтому считаем его внутри, если нужно.
+        # Но для нашего графа зависимостей лучше ручная реализация.
+        ema = self.calculate_ema(close, ema_period)
+        kc_upper = ema + (2 * atr_series)
+        kc_lower = ema - (2 * atr_series)
+        df = pd.DataFrame(index=close.index)
+        df[f'KCU_{ema_period}_{atr_period}_2.0'] = kc_upper
+        df[f'KCL_{ema_period}_{atr_period}_2.0'] = kc_lower
+        df[f'KCM_{ema_period}_{atr_period}_2.0'] = ema
         return df
-    
-    def add_macd(self, df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
-        """Добавляет MACD индикатор."""
-        df = df.copy()
+
+    def calculate_roc(self, close_series: pd.Series, period: int) -> pd.Series:
+        """Расчёт Rate of Change."""
+        return ta.roc(close_series, length=period, append=False)
+
+    def calculate_zscore(self, close_series: pd.Series, window: int) -> pd.Series:
+        """Расчёт Z-Score."""
+        mean = close_series.rolling(window=window).mean()
+        std = close_series.rolling(window=window).std().replace(0, np.nan)
+        return (close_series - mean) / std
+
+    def calculate_adx(self, high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.DataFrame:
+        """Расчёт ADX."""
+        return ta.adx(high, low, close, length=period, append=False)
         
-        if self.has_pandas_ta:
-            macd_data = ta.macd(df['Close'], fast=fast, slow=slow, signal=signal)
-            df['MACD'] = macd_data[f'MACD_{fast}_{slow}_{signal}']
-            df['MACD_Signal'] = macd_data[f'MACDs_{fast}_{slow}_{signal}']
-            df['MACD_Hist'] = macd_data[f'MACDh_{fast}_{slow}_{signal}']
-        else:
-            # Базовая реализация MACD
-            ema_fast = df['Close'].ewm(span=fast, adjust=False).mean()
-            ema_slow = df['Close'].ewm(span=slow, adjust=False).mean()
-            df['MACD'] = ema_fast - ema_slow
-            df['MACD_Signal'] = df['MACD'].ewm(span=signal, adjust=False).mean()
-            df['MACD_Hist'] = df['MACD'] - df['MACD_Signal']
-        
-        return df
-    
-    def add_rsi(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-        """Добавляет RSI индикатор."""
-        df = df.copy()
-        
-        if self.has_pandas_ta:
-            df['RSI'] = ta.rsi(df['Close'], length=period)
-        else:
-            # Базовая реализация RSI
-            delta = df['Close'].diff()
-            gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-            rs = gain / loss
-            df['RSI'] = 100 - (100 / (1 + rs))
-        
-        return df
-    
+    def calculate_vwap(self, close: pd.Series, volume: pd.Series, period: int) -> pd.Series:
+        """Расчёт VWAP."""
+        return ta.vwap(high=close, low=close, close=close, volume=volume, length=period, append=False)
+
+    def calculate_psar(self, high: pd.Series, low: pd.Series, close: pd.Series, af_initial: float, af_max: float) -> pd.Series:
+        """Расчёт Parabolic SAR."""
+        psar_df = ta.psar(high, low, close, af=af_initial, max_af=af_max, append=False)
+        # Возвращаем только основную линию PSAR, а не все его компоненты
+        return psar_df.iloc[:, 0]
+
     def add_stochastic(self, df: pd.DataFrame, k_period: int = 14, d_period: int = 3) -> pd.DataFrame:
         """Добавляет Stochastic Oscillator."""
         df = df.copy()
@@ -128,52 +124,6 @@ class TechnicalIndicators:
             sma_tp = tp.rolling(window=period).mean()
             mad = tp.rolling(window=period).apply(lambda x: np.mean(np.abs(x - x.mean())), raw=True)
             df['CCI'] = (tp - sma_tp) / (0.015 * mad)
-        
-        return df
-    
-    def add_atr(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-        """Добавляет Average True Range (ATR)."""
-        df = df.copy()
-        
-        if self.has_pandas_ta:
-            df['ATR'] = ta.atr(df['High'], df['Low'], df['Close'], length=period)
-        else:
-            # Базовая реализация ATR
-            high_low = (df['High'] - df['Low']).abs()
-            high_close_prev = (df['High'] - df['Close'].shift(1)).abs()
-            low_close_prev = (df['Low'] - df['Close'].shift(1)).abs()
-            tr = pd.concat([high_low, high_close_prev, low_close_prev], axis=1).max(axis=1)
-            # Wilder ATR: экспоненциальное сглаживание с alpha=1/period, adjust=False (без утечек)
-            # min_periods=period: первые <period> значений будут NaN
-            df['ATR'] = tr.ewm(alpha=1.0 / float(period), adjust=False, min_periods=period).mean()
-        
-        return df
-    
-    def add_bollinger_bands(self, df: pd.DataFrame, period: int = 20, std_dev: float = 2.0) -> pd.DataFrame:
-        """Добавляет Bollinger Bands."""
-        df = df.copy()
-        
-        if self.has_pandas_ta:
-            bb_data = ta.bbands(df['Close'], length=period, std=std_dev)
-            df['BB_Lower'] = bb_data[f'BBL_{period}_{std_dev}']
-            df['BB_Middle'] = bb_data[f'BBM_{period}_{std_dev}']
-            df['BB_Upper'] = bb_data[f'BBU_{period}_{std_dev}']
-        else:
-            # Базовая реализация Bollinger Bands
-            sma = df['Close'].rolling(window=period).mean()
-            std = df['Close'].rolling(window=period).std()
-            df['BB_Middle'] = sma
-            df['BB_Upper'] = sma + (std * std_dev)
-            df['BB_Lower'] = sma - (std * std_dev)
-        
-        # Дополнительные метрики
-        df['BB_Width'] = df['BB_Upper'] - df['BB_Lower']
-        denom = df['BB_Upper'] - df['BB_Lower']
-        df['BB_Position'] = np.where(
-            denom != 0,
-            (df['Close'] - df['BB_Lower']) / denom,
-            0.5
-        )
         
         return df
     
@@ -417,147 +367,3 @@ class TechnicalIndicators:
                   f"({nan_count/total_count*100:.1f}%) NaN values")
         
         return df
-    
-    def add_adx(self, df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
-        """Добавляет Average Directional Index (ADX)."""
-        df = df.copy()
-        
-        if self.has_pandas_ta:
-            adx_data = ta.adx(df['High'], df['Low'], df['Close'], length=period)
-            df['ADX'] = adx_data[f'ADX_{period}']
-            df['DI_Plus'] = adx_data[f'DMP_{period}']
-            df['DI_Minus'] = adx_data[f'DMN_{period}']
-        else:
-            # Базовая реализация ADX
-            up_move = df['High'].diff()
-            down_move = -df['Low'].diff()
-            
-            plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-            minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
-            
-            # True Range
-            high_low = df['High'] - df['Low']
-            high_close_prev = np.abs(df['High'] - df['Close'].shift())
-            low_close_prev = np.abs(df['Low'] - df['Close'].shift())
-            tr = pd.concat([pd.Series(high_low), pd.Series(high_close_prev), pd.Series(low_close_prev)], axis=1).max(axis=1)
-            
-            atr = tr.rolling(window=period).mean()
-            plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / atr)
-            minus_di = 100 * (pd.Series(minus_dm).rolling(window=period).mean() / atr)
-            
-            dx = 100 * np.abs(plus_di - minus_di) / (plus_di + minus_di)
-            adx = dx.rolling(window=period).mean()
-            
-            df['DI_Plus'] = plus_di
-            df['DI_Minus'] = minus_di
-            df['ADX'] = adx
-        
-        return df
-    
-    def add_all(self, df: pd.DataFrame, config: Optional[Dict] = None) -> pd.DataFrame:
-        """
-        Добавляет все технические индикаторы.
-        
-        Args:
-            df: DataFrame с OHLCV данными
-            config: Конфигурация параметров (опционально)
-            
-        Returns:
-            DataFrame с добавленными техническими индикаторами
-        """
-        if config is None:
-            config = self._get_default_config()
-        
-        df = df.copy()
-        
-        # EMA
-        df = self.add_ema(df, config.get('ema_periods', [9, 12, 21, 50, 200]))
-        
-        # MACD
-        macd_params = config.get('macd_params', {'fast': 12, 'slow': 26, 'signal': 9})
-        df = self.add_macd(df, **macd_params)
-        
-        # RSI
-        df = self.add_rsi(df, config.get('rsi_period', 14))
-        
-        # Stochastic
-        stoch_params = config.get('stoch_params', {'k_period': 14, 'd_period': 3})
-        df = self.add_stochastic(df, **stoch_params)
-        
-        # CCI
-        df = self.add_cci(df, config.get('cci_period', 20))
-        
-        # ATR
-        df = self.add_atr(df, config.get('atr_period', 14))
-        
-        # Bollinger Bands
-        bb_params = config.get('bb_params', {'period': 20, 'std_dev': 2.0})
-        df = self.add_bollinger_bands(df, **bb_params)
-        
-        # Keltner Channel
-        kc_params = config.get('kc_params', {'ema_period': 20, 'atr_period': 14, 'multiplier': 2.0})
-        df = self.add_keltner_channel(df, **kc_params)
-        
-        # Donchian Channel
-        df = self.add_donchian_channel(df, config.get('donchian_period', 20))
-        
-        # Momentum
-        df = self.add_momentum(df, config.get('momentum_period', 10))
-        
-        # Volume indicators
-        df = self.add_obv(df)
-        df = self.add_cmf(df, config.get('cmf_period', 20))
-        df = self.add_ad_line(df)
-        
-        # Advanced indicators
-        psar_params = config.get('psar_params', {'af_initial': 0.02, 'af_max': 0.2})
-        df = self.add_parabolic_sar(df, **psar_params)
-        
-        df = self.add_adx(df, config.get('adx_period', 14))
-        
-        return df
-    
-    def _get_default_config(self) -> Dict:
-        """Возвращает конфигурацию по умолчанию."""
-        return {
-            'ema_periods': [9, 12, 21, 50, 200],
-            'macd_params': {'fast': 12, 'slow': 26, 'signal': 9},
-            'rsi_period': 14,
-            'stoch_params': {'k_period': 14, 'd_period': 3},
-            'cci_period': 20,
-            'atr_period': 14,
-            'bb_params': {'period': 20, 'std_dev': 2.0},
-            'kc_params': {'ema_period': 20, 'atr_period': 14, 'multiplier': 2.0},
-            'donchian_period': 20,
-            'momentum_period': 10,
-            'cmf_period': 20,
-            'psar_params': {'af_initial': 0.02, 'af_max': 0.2},
-            'adx_period': 14
-        }
-    
-    def get_feature_names(self, config: Optional[Dict] = None) -> List[str]:
-        """Возвращает список названий всех создаваемых фич."""
-        if config is None:
-            config = self._get_default_config()
-        
-        features = []
-        
-        # EMA features
-        for period in config.get('ema_periods', [9, 12, 21, 50, 200]):
-            features.append(f'EMA_{period}')
-        
-        # MACD features
-        features.extend(['MACD', 'MACD_Signal', 'MACD_Hist'])
-        
-        # Other features
-        features.extend([
-            'RSI', 'Stoch_K', 'Stoch_D', 'CCI', 'ATR',
-            'BB_Lower', 'BB_Middle', 'BB_Upper', 'BB_Width', 'BB_Position',
-            'KC_Lower', 'KC_Middle', 'KC_Upper',
-            'DC_Lower', 'DC_Middle', 'DC_Upper',
-            f'Momentum_{config.get("momentum_period", 10)}',
-            'OBV', 'CMF', 'AD', 'PSAR',
-            'ADX', 'DI_Plus', 'DI_Minus'
-        ])
-        
-        return features

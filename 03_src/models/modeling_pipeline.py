@@ -46,27 +46,27 @@ def _ensure_sorted_index(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _validate_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    # Требуем столбцы признаков f_* и целевую переменную y_bhs
+    # Требуем столбцы признаков f_* и бинарную целевую переменную y_bs (0/1)
     feature_cols = [c for c in df.columns if c.startswith("f_") or c == "close"]
     # Явно исключаем диагностические колонки, если они случайно попали в датасет
     debug_exclude = {"f_ret_h", "f_dead_eps", "f_atr"}
     feature_cols = [c for c in feature_cols if c not in debug_exclude]
-    if "y_bhs" not in df.columns:
-        raise ValueError("В датафрейме отсутствует колонка 'y_bhs' — создайте метки целевого класса")
+    if "y_bs" not in df.columns:
+        raise ValueError("В датасете отсутствует колонка 'y_bs' — создайте бинарные метки (0/1)")
 
     X = df[feature_cols].astype(float)
-    y = df["y_bhs"].astype("Int8")
+    y = df["y_bs"].astype("Int8")
 
     # Убираем строки с NaN/inf по X или y
     mask = (~X.isna().any(axis=1)) & (~np.isinf(X).any(axis=1)) & y.notna()
     X = X.loc[mask]
     y = y.loc[mask]
 
-    # Проверяем, что метки в формате 0,1,2
+    # Проверяем, что метки в формате 0/1
     unique_labels = set(int(v) for v in pd.Series(y).unique().tolist())
-    if not unique_labels.issubset({0, 1, 2}):
+    if not unique_labels.issubset({0, 1}):
         raise ValueError(
-            f"Ожидаются метки классов 0,1,2. Обнаружены: {sorted(unique_labels)}. Пересоздайте датасет с новыми метками."
+            f"Ожидаются метки классов 0/1. Обнаружены: {sorted(unique_labels)}. Пересоздайте датасет с бинарными метками."
         )
     return X, y
 
@@ -176,41 +176,34 @@ def _save_cv_indices(folds: List[Tuple[np.ndarray, np.ndarray]], path: Path, ind
 
 def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarray] = None) -> Dict[str, float]:
     res = {
-        "f1_macro": f1_score(y_true, y_pred, average="macro"),
+        "f1": f1_score(y_true, y_pred),
         "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
         "accuracy": accuracy_score(y_true, y_pred),
     }
     if y_proba is not None:
-        # log_loss требует корректные вероятности и все классы
         try:
-            res["mlogloss"] = log_loss(y_true, y_proba, labels=[0, 1, 2])
+            res["logloss"] = log_loss(y_true, y_proba, labels=[0, 1])
         except Exception:
             pass
     return res
 
 
-def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
+def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float], params: Dict, fit_cfg: Dict, common_cfg: Dict):
     from xgboost import XGBClassifier
     try:
         from xgboost.callback import EarlyStopping  # noqa: F401
     except Exception:
         EarlyStopping = None  # type: ignore
 
-    # Метки уже в формате 0..2
+    # Метки бинарные 0/1
     sample_weight = y_tr.map(class_weights).astype(float).values
-    clf = XGBClassifier(
-        objective="multi:softprob",
-        num_class=3,
-        learning_rate=0.05,
-        n_estimators=2000,
-        max_depth=6,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        tree_method="hist",
-        eval_metric="mlogloss",
-        random_state=42,
-        n_jobs=-1,
-    )
+    params = dict(params or {})
+    params.pop("num_class", None)
+    params.setdefault("objective", "binary:logistic")
+    params.setdefault("eval_metric", common_cfg.get("eval_metric", "logloss"))
+    params.setdefault("random_state", common_cfg.get("random_state", 42))
+    params.setdefault("n_jobs", -1)
+    clf = XGBClassifier(**params)
     # Совместимость с разными версиями XGBoost
     try:
         if EarlyStopping is not None:
@@ -219,8 +212,8 @@ def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
                 y_tr,
                 sample_weight=sample_weight,
                 eval_set=[(X_va, y_va)],
-                verbose=False,
-                callbacks=[EarlyStopping(rounds=50, save_best=True)],
+                verbose=bool(fit_cfg.get("verbose", False)),
+                callbacks=[EarlyStopping(rounds=int(common_cfg.get("early_stopping_rounds", 50)), save_best=True)],
             )
         else:
             raise TypeError("callbacks not supported")
@@ -232,54 +225,29 @@ def _fit_xgboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
                 y_tr,
                 sample_weight=sample_weight,
                 eval_set=[(X_va, y_va)],
-                verbose=False,
-                early_stopping_rounds=50,
+                verbose=bool(fit_cfg.get("verbose", False)),
+                early_stopping_rounds=int(common_cfg.get("early_stopping_rounds", 50)),
             )
         except TypeError:
             # Fallback 2: попытка передать early_stopping_rounds в конструктор
             try:
-                clf = XGBClassifier(
-                    objective="multi:softprob",
-                    num_class=3,
-                    learning_rate=0.05,
-                    n_estimators=2000,
-                    max_depth=6,
-                    subsample=0.8,
-                    colsample_bytree=0.8,
-                    tree_method="hist",
-                    eval_metric="mlogloss",
-                    random_state=42,
-                    n_jobs=-1,
-                    early_stopping_rounds=50,  # type: ignore[arg-type]
-                )
+                clf = XGBClassifier(**{**params, "early_stopping_rounds": int(common_cfg.get("early_stopping_rounds", 50))})  # type: ignore[arg-type]
                 clf.fit(
                     X_tr,
                     y_tr,
                     sample_weight=sample_weight,
                     eval_set=[(X_va, y_va)],
-                    verbose=False,
+                    verbose=bool(fit_cfg.get("verbose", False)),
                 )
             except TypeError:
                 # Fallback 3: без ранней остановки
-                clf = XGBClassifier(
-                    objective="multi:softprob",
-                    num_class=3,
-                    learning_rate=0.05,
-                    n_estimators=2000,
-                    max_depth=6,
-                    subsample=0.8,
-                    colsample_bytree=0.8,
-                    tree_method="hist",
-                    eval_metric="mlogloss",
-                    random_state=42,
-                    n_jobs=-1,
-                )
+                clf = XGBClassifier(**params)
                 clf.fit(
                     X_tr,
                     y_tr,
                     sample_weight=sample_weight,
                     eval_set=[(X_va, y_va)],
-                    verbose=False,
+                    verbose=bool(fit_cfg.get("verbose", False)),
                 )
     return clf
 
@@ -290,46 +258,38 @@ def _predict_xgboost(clf, X):
     return pred, proba
 
 
-def _fit_lightgbm(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
+def _fit_lightgbm(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float], params: Dict, fit_cfg: Dict, common_cfg: Dict):
     import lightgbm as lgb
 
     # LGBMClassifier умеет class_weight напрямую
-    clf = lgb.LGBMClassifier(
-        objective="multiclass",
-        num_class=3,
-        learning_rate=0.05,
-        n_estimators=5000,
-        num_leaves=63,
-        feature_fraction=0.8,
-        bagging_fraction=0.8,
-        bagging_freq=1,
-        random_state=42,
-        n_jobs=-1,
-    )
+    params = dict(params or {})
+    params.pop("num_class", None)
+    params.setdefault("objective", "binary")
+    params.setdefault("metric", "binary_logloss")
+    params.setdefault("random_state", common_cfg.get("random_state", 42))
+    params.setdefault("n_jobs", -1)
+    clf = lgb.LGBMClassifier(**params)
     clf.set_params(class_weight=class_weights)
-    clf.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], callbacks=[lgb.early_stopping(50), lgb.log_evaluation(-1)])
+    callbacks = [lgb.early_stopping(int(common_cfg.get("early_stopping_rounds", 50)))]
+    callbacks.append(lgb.log_evaluation(fit_cfg.get("verbose", -1)))
+    clf.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], callbacks=callbacks)
     return clf
 
 
-def _fit_catboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float]):
+def _fit_catboost(X_tr, y_tr, X_va, y_va, class_weights: Dict[int, float], params: Dict, fit_cfg: Dict, common_cfg: Dict):
     from catboost import CatBoostClassifier
 
-    # Переводим веса в порядке классов 0,1,2
-    class_weights_list = [class_weights[0], class_weights[1], class_weights[2]]
+    # Переводим веса в порядке классов 0,1
+    class_weights_list = [class_weights.get(0, 1.0), class_weights.get(1, 1.0)]
 
-    clf = CatBoostClassifier(
-        loss_function="MultiClass",
-        learning_rate=0.05,
-        iterations=5000,
-        depth=6,
-        l2_leaf_reg=3.0,
-        od_type="Iter",
-        od_wait=50,
-        verbose=False,
-        random_state=42,
-        class_weights=class_weights_list,
-    )
-    clf.fit(X_tr, y_tr, eval_set=(X_va, y_va), verbose=False)
+    params = dict(params or {})
+    params.setdefault("loss_function", "Logloss")
+    params.setdefault("random_state", common_cfg.get("random_state", 42))
+    params.setdefault("verbose", fit_cfg.get("verbose", False))
+    params["class_weights"] = class_weights_list
+
+    clf = CatBoostClassifier(**params)
+    clf.fit(X_tr, y_tr, eval_set=(X_va, y_va), verbose=fit_cfg.get("verbose", False))
     return clf
 
 
@@ -339,22 +299,22 @@ def _predict_catboost(clf, X):
     return pred, proba
 
 
-def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_weights: Dict[int, float]):
+def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_weights: Dict[int, float], model_cfg: Dict, common_cfg: Dict):
     if name == "xgboost":
-        clf = _fit_xgboost(X_train, y_train, X_valid, y_valid, class_weights)
+        clf = _fit_xgboost(X_train, y_train, X_valid, y_valid, class_weights, model_cfg.get("params", {}), model_cfg.get("fit", {}), common_cfg)
         pred, proba = _predict_xgboost(clf, X_valid)
         metrics = _evaluate(y_valid.values, pred, proba)
         return clf, metrics
 
     if name == "lightgbm":
-        clf = _fit_lightgbm(X_train, y_train, X_valid, y_valid, class_weights)
+        clf = _fit_lightgbm(X_train, y_train, X_valid, y_valid, class_weights, model_cfg.get("params", {}), model_cfg.get("fit", {}), common_cfg)
         proba = clf.predict_proba(X_valid)
         pred = clf.predict(X_valid)
         metrics = _evaluate(y_valid.values, pred, proba)
         return clf, metrics
 
     if name == "catboost":
-        clf = _fit_catboost(X_train, y_train, X_valid, y_valid, class_weights)
+        clf = _fit_catboost(X_train, y_train, X_valid, y_valid, class_weights, model_cfg.get("params", {}), model_cfg.get("fit", {}), common_cfg)
         pred, proba = _predict_catboost(clf, X_valid)
         metrics = _evaluate(y_valid.values, pred, proba)
         return clf, metrics
@@ -363,15 +323,16 @@ def _fit_and_eval_model(name: str, X_train, y_train, X_valid, y_valid, class_wei
 
 
 def _confusion_and_report(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, object]:
-    labels = [0, 1, 2]
+    labels = [0, 1]
     cm = confusion_matrix(y_true, y_pred, labels=labels)
-    report = classification_report(y_true, y_pred, labels=labels, digits=4, output_dict=True)
+    report = classification_report(y_true, y_pred, digits=4, output_dict=True)
     return {"confusion_matrix": cm.tolist(), "classification_report": report}
 
 
 def run_modeling_pipeline(
     features_path: str = "01_data/processed/eurusd_features.parquet",
     config_splits_path: str = "04_configs/splits.yml",
+    config_models_path: str = "04_configs/models.yml",
     save_dir: str = "06_reports",
     models_to_run: Optional[List[str]] = None,
 ) -> Dict:
@@ -383,13 +344,14 @@ def run_modeling_pipeline(
     4) Генерация фолдов TimeSeriesSplit на train+valid
     5) Балансировка классов через веса
     6) Обучение XGBoost/LightGBM/CatBoost с ранней остановкой
-    7) Оценка по метрикам F1_macro, balanced_accuracy, confusion matrix
+    7) Оценка по метрикам F1, balanced_accuracy, confusion matrix
     8) Сохранение артефактов в отчет
     """
 
     project_root = Path(__file__).resolve().parents[2]
     features_fp = project_root / features_path
     splits_fp = project_root / config_splits_path
+    models_fp = project_root / config_models_path
     save_dir_path = project_root / save_dir
     save_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -397,9 +359,9 @@ def run_modeling_pipeline(
     if not features_fp.exists():
         raise FileNotFoundError(f"Не найден файл признаков: {features_fp}")
     df = pd.read_parquet(features_fp)
-    # Строгая проверка: наличие любой целевой переменной вида y_*
-    if not any(col.startswith("y_") for col in df.columns):
-        raise ValueError("В датасете отсутствует целевая переменная вида 'y_*'. Добавьте её на этапе feature engineering.")
+    # Проверка наличия бинарной цели y_bs
+    if "y_bs" not in df.columns:
+        raise ValueError("В датасете отсутствует бинарная целевая переменная 'y_bs'. Подготовьте размеченный датасет.")
 
     # 2) Валидация/сортировка
     df = _ensure_sorted_index(df)
@@ -436,8 +398,11 @@ def run_modeling_pipeline(
     # 6) Веса классов
     class_weights = _compute_class_weights(y_train)
 
-    # 7) Обучение на каждом фолде и агрегирование метрик (по валидации фолда)
-    models = ["xgboost", "lightgbm", "catboost"] if models_to_run is None else models_to_run
+    # 7) Читаем конфиг моделей и определяем список моделей
+    models_cfg = _load_yaml(models_fp)
+    enabled_models = [name for name, cfg in (models_cfg.get("models") or {}).items() if (cfg or {}).get("enabled", False)]
+    models = enabled_models if models_to_run is None else models_to_run
+    common_cfg = models_cfg.get("common", {})
     results: Dict[str, Dict] = {}
 
     for model_name in models:
@@ -446,14 +411,15 @@ def run_modeling_pipeline(
             X_tr, y_tr = X_trval.iloc[tr_idx], y_trval.iloc[tr_idx]
             X_va, y_va = X_trval.iloc[va_idx], y_trval.iloc[va_idx]
 
-            clf, metrics = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights)
+            model_cfg = (models_cfg.get("models", {}).get(model_name) or {})
+            clf, metrics = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights, model_cfg, common_cfg)
             fold_metrics.append(metrics)
 
         # усреднение метрик по фолдам
         avg_metrics = {k: float(np.nanmean([m.get(k, np.nan) for m in fold_metrics])) for k in fold_metrics[0].keys()}
 
         # финальное дообучение на train+valid и оценка на test
-        clf_final, _ = _fit_and_eval_model(model_name, X_trval, y_trval, X_valid, y_valid, class_weights)
+        clf_final, _ = _fit_and_eval_model(model_name, X_trval, y_trval, X_valid, y_valid, class_weights, (models_cfg.get("models", {}).get(model_name) or {}), common_cfg)
         # оценим на тесте
         if model_name == "catboost":
             y_pred_test, y_proba_test = _predict_catboost(clf_final, X_test)
