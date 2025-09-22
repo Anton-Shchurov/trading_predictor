@@ -142,8 +142,8 @@ pipeline_settings:
   output_dir: "01_data/processed"
   output_pattern: "{symbol_lower}_{feature_set}_features.parquet"
   
-  # Активный набор признаков (tier-1 | tier-2)
-  feature_set: tier-1
+  # Активный набор признаков (fset-1 | fset-2)
+  feature_set: fset-4
   
   # Параметры сохранения Parquet
   parquet_settings:
@@ -167,13 +167,12 @@ pipeline_settings:
   # Настройки логирования
   logging:
     level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-    log_file: "05_logs/feature_engineering.log"
 
 # =============================================================================
 # НАБОРЫ ПРИЗНАКОВ (FEATURE SETS)
 # =============================================================================
 feature_sets:
-  tier-1:
+  fset-1:
     include_patterns:
       - 'f_di_diff_14'
       - 'f_vwap_dev_over_atr14'
@@ -189,8 +188,8 @@ feature_sets:
       - 'f_ret_12'
     exclude_patterns: []
 
-  tier-2:
-    inherit_from: tier-1
+  fset-2:
+    inherit_from: fset-1
     include_patterns:
       - 'f_macd_12_26_9_hist'
       - 'f_atr_14_pct'
@@ -200,13 +199,44 @@ feature_sets:
       - 'f_psar_trend'
       - 'f_ret_1_z20'
       - 'f_range_over_atr'
+    exclude_patterns: []
 
+  fset-3:
+    include_patterns:
+      - 'close'
+      - 'f_macd_12_26_9_hist'
+      - 'f_di_diff_14'
+      - 'f_adx_14'
+      - 'f_rsi_14'
+      - 'f_atr_14_pct'
+      - 'f_return_std_20'
+      - 'f_range_over_atr'
+      - 'f_donchian_pos_20'
+      - 'f_bandwidth_20'
+      - 'f_ret_24'
+      - 'f_rolling_std_ret_5'
+      - 'f_zscore_close_50'
+      - 'f_vwap_dev_over_atr14'
+    exclude_patterns: []
+
+  fset-4:
+    inherit_from: fset-3
+    include_patterns:
+      - 'f_ema_50'
+      - 'f_ema_200'
+      - 'f_ema20_slope'
+      - 'f_rsi_5'
+      - 'f_roc_5'
+      - 'f_ret_12'
+      - 'f_psar_trend'    
+    exclude_patterns: []
+    
 # =============================================================================
 # МЕТАДАННЫЕ И ОПИСАНИЯ
 # =============================================================================
 metadata:
-  version: "1.1.1"
-  created_date: "2025-09-18"
+  version: "1.2.0"
+  created_date: "2025-09-21"
   description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
   
   # Ожидаемые колонки входных данных (стандартизированные имена)

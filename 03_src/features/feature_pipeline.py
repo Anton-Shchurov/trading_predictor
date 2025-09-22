@@ -234,26 +234,7 @@ class FeatureEngineeringPipeline:
             console_handler.setFormatter(formatter)
             logger.addHandler(console_handler)
             
-            # File handler (если указан путь)
-            log_file = self.config.get('pipeline_settings', {}).get('logging', {}).get('log_file')
-            if log_file:
-                try:
-                    # Определяем корневую папку проекта
-                    current_file = Path(__file__).resolve()
-                    project_root = current_file.parent.parent.parent
-                    
-                    # Создаем абсолютный путь к логу от корня проекта
-                    log_path = project_root / log_file
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    
-                    file_handler = logging.FileHandler(str(log_path), encoding='utf-8')
-                    file_handler.setLevel(logging.DEBUG)
-                    file_handler.setFormatter(formatter)
-                    logger.addHandler(file_handler)
-                    
-                    logger.debug(f"Logging to: {log_path}")
-                except Exception as e:
-                    logger.warning(f"Could not setup file logging: {e}")
+            # Файловое логирование отключено: оставляем только вывод в консоль
         
         return logger
     

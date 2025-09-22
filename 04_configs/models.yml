@@ -11,6 +11,9 @@ metrics:
     - accuracy
     - logloss
 
+experiment:
+  current_id: "exp_0006"
+
 common:
   random_state: 42
   early_stopping_rounds: 50
