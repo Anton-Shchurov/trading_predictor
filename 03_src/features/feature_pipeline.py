@@ -158,8 +158,31 @@ class FeatureEngineeringPipeline:
         pipeline_cfg = self.config.get('pipeline_settings') or {}
         fs_name = pipeline_cfg.get('feature_set')
         sets = self.config.get('feature_sets') or {}
-        if not fs_name or not isinstance(sets, dict) or fs_name not in sets:
+        if not fs_name or not isinstance(sets, dict) or len(sets) == 0:
             return None, {'include': [], 'exclude': []}
+
+        # Строгая проверка: допускаем только формат fset-N во входном значении
+        if not re.match(r'^fset-\d+$', str(fs_name)):
+            msg = (
+                f"Некорректное имя набора признаков: '{fs_name}'. Используйте формат 'fset-N', например 'fset-5'."
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # Ищем соответствующий ключ в конфиге: ключ может быть записан с подчёркиванием
+        canonical_name: Optional[str] = None
+        if fs_name in sets:
+            canonical_name = fs_name
+        else:
+            alt = fs_name.replace('-', '_')
+            if alt in sets:
+                canonical_name = alt
+        if canonical_name is None:
+            maybe = [k for k in sets.keys() if isinstance(k, str) and k.replace('_', '-') == fs_name]
+            hint = f" Возможно, вы имели в виду: '{maybe[0]}'" if maybe else ""
+            msg = f"Набор признаков '{fs_name}' не найден в конфиге.{hint}"
+            self.logger.error(msg)
+            raise KeyError(msg)
         resolved: Dict[str, List[str]] = {'include': [], 'exclude': []}
         visited: set = set()
         
@@ -174,13 +197,17 @@ class FeatureEngineeringPipeline:
             resolved['include'] += node.get('include_patterns') or node.get('include') or []
             resolved['exclude'] += node.get('exclude_patterns') or node.get('exclude') or []
         
-        collect(fs_name)
+        collect(canonical_name)
+        # Возвращаем исходное (строгое) имя fs_name для логов/сохранения, а паттерны собраны по canonical_name
         return fs_name, resolved
     
     def _filter_columns_by_feature_set(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Отбирает колонки по активному набору признаков:
-        - Всегда сохраняет 'close' и целевую колонку (если есть)
+        - Всегда сохраняет целевую колонку (если есть)
+        - Колонку 'close' сохраняет только если включен флаг
+          pipeline_settings.always_include_close, либо она явно
+          попадает по include/exclude маскам набора
         - Остальные колонки фильтруются по include/exclude маскам набора
         """
         fs_name, patterns = self._resolve_feature_set()
@@ -189,11 +216,23 @@ class FeatureEngineeringPipeline:
 
         selected_columns: List[str] = []
         
-        # Базовые колонки, которые всегда сохраняем
-        base_keep = {'close'}
-        target_name = (self.config.get('feature_definitions', {}).get('y_bs') or {}).get('name', 'y_bs')
-        if target_name in df.columns:
+        # Базовые колонки, которые сохраняем без учёта паттернов
+        ps = (self.config.get('pipeline_settings', {}) or {})
+        keep_close = bool(ps.get('always_include_close', True))
+        keep_target = bool(ps.get('include_target', True))
+        # Дополнительные базовые колонки, которые нужно сохранить всегда
+        extra_base_keep = set()
+        for col in ps.get('base_keep_columns', []) or []:
+            if isinstance(col, str):
+                extra_base_keep.add(col)
+        base_keep = set()
+        if keep_close:
+            base_keep.add('close')
+        # Целевая метка всегда должна сохраняться, если она рассчитана
+        target_name = 'y_bs'
+        if keep_target and target_name in df.columns:
             base_keep.add(target_name)
+        base_keep |= extra_base_keep
 
         include_patterns = patterns.get('include', [])
         exclude_patterns = patterns.get('exclude', [])
@@ -209,6 +248,10 @@ class FeatureEngineeringPipeline:
             if match_any(col, include_patterns) and not match_any(col, exclude_patterns):
                 selected_columns.append(col)
         
+        # Гарантируем присутствие целевой метки даже при нестандартных паттернах (если включена в настройках)
+        if keep_target and target_name in df.columns and target_name not in selected_columns:
+            selected_columns.append(target_name)
+
         filtered = df[selected_columns]
         self.logger.info(f"Feature set applied: '{fs_name}' | Columns kept: {len(filtered.columns)}/{len(df.columns)}")
         return filtered
@@ -437,7 +480,7 @@ class FeatureEngineeringPipeline:
             elif method_name in self._method_registry:
                 func = self._method_registry[method_name]
                 # Специальная обработка для календарных фич, которым нужен индекс
-                if method_name in ['hour_sin', 'hour_cos', 'day_of_week']:
+                if method_name in ['hour_sin', 'hour_cos', 'day_of_week', 'session_flag', 'session_flag_tz']:
                     result = func(index=results_cache['index'], **params)
                 else:
                     result = func(*args_list, **params)
@@ -487,7 +530,9 @@ class FeatureEngineeringPipeline:
             base_output = f"01_data/processed/{ds_slug}__features.parquet"
 
         # Добавляем суффикс набора признаков к имени файла, чтобы не перезатирать разные версии
-        fs_name = (self.config.get('pipeline_settings') or {}).get('feature_set')
+        # Используем нормализованное имя набора признаков (если доступно)
+        resolved_fs_name, _ = self._resolve_feature_set()
+        fs_name = resolved_fs_name or (self.config.get('pipeline_settings') or {}).get('feature_set')
         p = Path(base_output)
         stem = p.stem
         if fs_name and fs_name not in stem:
@@ -550,14 +595,42 @@ class FeatureEngineeringPipeline:
             
             # 2. Декларативное создание признаков
             df_with_features = self._execute_declarative_pipeline(df)
+
+            # 2.1 Гарантируем наличие целевой метки y_bs, даже если она не была собрана по каким-либо причинам
+            if 'y_bs' not in df_with_features.columns:
+                try:
+                    self.logger.warning("Target 'y_bs' not found after feature generation. Computing fallback target from 'close'.")
+                    # Получаем источник close
+                    if 'close' in df_with_features.columns:
+                        close_series = df_with_features['close']
+                    elif 'Close' in df.columns:
+                        close_series = df['Close']
+                    elif 'close' in df.columns:
+                        close_series = df['close']
+                    else:
+                        close_series = None
+
+                    if close_series is not None:
+                        # Читаем горизонт из конфигурации, по умолчанию 5
+                        y_params = ((self.config.get('feature_definitions', {}) or {}).get('y_bs', {}) or {}).get('params', {})
+                        horizon = int(y_params.get('horizon', 5))
+                        y_df = create_binary_labels(close_series, horizon=horizon, return_debug=False)
+                        df_with_features = df_with_features.join(y_df[['y_bs']])
+                        self.logger.info("Fallback target 'y_bs' computed and appended.")
+                    else:
+                        self.logger.error("Cannot compute fallback 'y_bs': 'close' series not available.")
+                except Exception as err:
+                    self.logger.error(f"Failed to compute fallback target 'y_bs': {err}")
             
             # 3. Фильтрация признаков по активному набору
             df_selected = self._filter_columns_by_feature_set(df_with_features)
-
             end_time = pd.Timestamp.now()
             
             # 3.1 Обновляем статистику под выбранный набор
-            base_cols = {'close'}
+            # Базовые колонки, не считаем их созданными признаками
+            base_cols = set()
+            if 'close' in df_selected.columns:
+                base_cols.add('close')
             target_name = 'y_bs' # Имя жестко задано в декларативном конфиге
             if target_name in df_selected.columns:
                 base_cols.add(target_name)
@@ -571,6 +644,14 @@ class FeatureEngineeringPipeline:
 
             # 4. Сохранение результатов
             full_path, demo_path = self.save_results(df_selected, output_path)
+            # Сохраняем служебные пути и активный набор признаков в статистику
+            try:
+                resolved_fs, _ = self._resolve_feature_set()
+            except Exception:
+                resolved_fs = None
+            self.stats['output_path'] = full_path
+            if resolved_fs:
+                self.stats['feature_set'] = resolved_fs
             
             # 5. Финальная статистика
             self._log_final_stats(df_selected)

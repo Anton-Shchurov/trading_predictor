@@ -16,6 +16,7 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
     log_loss,
+    roc_auc_score,
 )
 from sklearn.model_selection import TimeSeriesSplit
 
@@ -183,6 +184,18 @@ def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarr
     if y_proba is not None:
         try:
             res["logloss"] = log_loss(y_true, y_proba, labels=[0, 1])
+        except Exception:
+            pass
+        # ROC-AUC рассчитываем по вероятности положительного класса (label=1)
+        try:
+            y_score = None
+            if isinstance(y_proba, np.ndarray):
+                if y_proba.ndim == 2 and y_proba.shape[1] >= 2:
+                    y_score = y_proba[:, 1]
+                elif y_proba.ndim == 1:
+                    y_score = y_proba
+            if y_score is not None:
+                res["roc_auc"] = roc_auc_score(y_true, y_score)
         except Exception:
             pass
     return res
@@ -435,6 +448,12 @@ def run_modeling_pipeline(
         model_dir = save_dir_path / f"{model_name}"
         model_dir.mkdir(parents=True, exist_ok=True)
         joblib.dump(clf_final, model_dir / "model.joblib")
+        # Для CatBoost дополнительно сохраняем бинарный формат .cbm для совместимости FI
+        if model_name == "catboost":
+            try:
+                clf_final.save_model(str(model_dir / "model.cbm"))  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
         results[model_name] = {
             "cv_folds": fold_metrics,

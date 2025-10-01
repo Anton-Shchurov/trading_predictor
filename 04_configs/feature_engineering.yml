@@ -121,57 +121,120 @@ feature_definitions:
     needs: ['_psar_raw']
     formula: "(close > _psar_raw).astype('Int8')"
   
-  # Календарные
-  f_hour_of_day_sin: { method: 'hour_sin' }
-  f_hour_of_day_cos: { method: 'hour_cos' }
-  f_dow: { method: 'day_of_week' }
+  # -------------------------------------------
+  # Режимы (regimes)
+  # -------------------------------------------
+  f_regime_trend_adx14:
+    method: 'threshold_flag'
+    inputs: ['f_adx_14']
+    params: { threshold: 25.0, strictly_greater: true }
+  f_regime_bull_ema200:
+    method: 'formula'
+    needs: ['_ema_200_raw']
+    formula: "(close > _ema_200_raw).astype('Int8')"
+  f_regime_highvol_atr14:
+    method: 'quantile_flag'
+    inputs: ['f_atr_14_pct']
+    params: { q: 0.8, rolling_window: 1000, use_past_only: true }
 
-  # Целевая переменная
-  y_bs: { method: 'binary_target', inputs: ['close'], params: { horizon: 5 } }
+  # -------------------------------------------
+  # Сжатие волатильности (volatility squeeze)
+  # -------------------------------------------
+  f_bb_squeeze_20:
+    method: 'formula'
+    needs: ['f_bandwidth_20', 'f_atr_14_pct']
+    formula: "f_bandwidth_20 / f_atr_14_pct.replace(0, nan)"
+  f_stdret20_over_atr14:
+    method: 'formula'
+    needs: ['f_return_std_20', 'f_atr_14_pct']
+    formula: "f_return_std_20 / f_atr_14_pct.replace(0, nan)"
 
-# =============================================================================
-# ОБЩИЕ НАСТРОЙКИ ПАЙПЛАЙНА
-# =============================================================================
-pipeline_settings:
-  # Входные данные (будет переопределено через dataset.active/items)
-  input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
-  
-  # Выходной файл
-  output_file: "01_data/processed/eurusd_features.parquet"
-  # Директория и шаблон имени выходного файла (для детерминированного пути)
-  output_dir: "01_data/processed"
-  output_pattern: "{symbol_lower}_{feature_set}_features.parquet"
-  
-  # Активный набор признаков (fset-1 | fset-2)
-  feature_set: fset-4
-  
-  # Параметры сохранения Parquet
-  parquet_settings:
-    engine: "pyarrow"
-    compression: "snappy"
-    index: true
-  
-  # Обработка пропущенных значений
-  missing_values:
-    strategy: "keep_all"  # "keep_all", "drop", "forward_fill", "backward_fill"
-    min_periods_required: 200  # Минимум записей для начала расчетов
-    # Сохраняем все данные для анализа пользователем
-    drop_all_nan_only: false
-  
-  # Настройки валидации
-  validation:
-    check_duplicates: true
-    check_sorting: true
-    max_missing_ratio: 0.1  # Максимальная доля пропусков (10%)
-  
-  # Настройки логирования
-  logging:
-    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  # -------------------------------------------
+  # Форма распределения (shape stats)
+  # -------------------------------------------
+  f_rolling_skew_ret_20:
+    method: 'rolling_skew'
+    inputs: ['f_ret_1']
+    params: { window: 20, bias: false }
+  f_rolling_kurt_ret_20:
+    method: 'rolling_kurtosis'
+    inputs: ['f_ret_1']
+    params: { window: 20, fisher: true, bias: false }
+  f_autocorr_ret1_lag1:
+    method: 'autocorr'
+    inputs: ['f_ret_1']
+    params: { lag: 1, window: 50 }
+  f_autocorr_ret1_lag2:
+    method: 'autocorr'
+    inputs: ['f_ret_1']
+    params: { lag: 2, window: 50 }
+  f_autocorr_ret1_lag3:
+    method: 'autocorr'
+    inputs: ['f_ret_1']
+    params: { lag: 3, window: 50 }
+  f_autocorr_ret1_lag4:
+    method: 'autocorr'
+    inputs: ['f_ret_1']
+    params: { lag: 4, window: 50 }
+  f_autocorr_ret1_lag5:
+    method: 'autocorr'
+    inputs: ['f_ret_1']
+    params: { lag: 5, window: 50 }
+
+  # -------------------------------------------
+  # Давление к пробою (breakout pressure)
+  # -------------------------------------------
+  f_donchian_dist_upper_20_over_atr14:
+    method: 'formula'
+    needs: ['_donchian_raw', '_atr_14_raw']
+    formula: "(_donchian_raw['DCU_20_20'] - close) / _atr_14_raw.replace(0, nan)"
+  f_donchian_dist_lower_20_over_atr14:
+    method: 'formula'
+    needs: ['_donchian_raw', '_atr_14_raw']
+    formula: "(close - _donchian_raw['DCL_20_20']) / _atr_14_raw.replace(0, nan)"
+  f_bars_since_upper_break_20:
+    method: 'bars_since_donchian_break'
+    inputs: ['close']
+    needs: ['_donchian_raw']
+    params: { which: 'upper' }
+  f_bars_since_lower_break_20:
+    method: 'bars_since_donchian_break'
+    inputs: ['close']
+    needs: ['_donchian_raw']
+    params: { which: 'lower' }
+
+  # -------------------------------------------
+  # Сессии (sessions)
+  # -------------------------------------------
+  f_sess_london_open: { method: 'session_flag_tz', params: { tz: 'Europe/London', start_hour_local: 8, end_hour_local: 16 } }
+  f_sess_ny_open:     { method: 'session_flag_tz', params: { tz: 'America/New_York', start_hour_local: 8, end_hour_local: 17 } }
+  f_sess_overlap:
+    method: 'formula'
+    needs: ['f_sess_london_open', 'f_sess_ny_open']
+    formula: "((f_sess_london_open == 1) & (f_sess_ny_open == 1)).astype('Int8')"
 
 # =============================================================================
 # НАБОРЫ ПРИЗНАКОВ (FEATURE SETS)
 # =============================================================================
 feature_sets:
+  core-14:
+    include_patterns:
+      - 'f_adx_14'
+      - 'f_di_diff_14'
+      - 'f_macd_12_26_9_hist'
+      - 'f_roc_5'
+      - 'f_atr_14_pct'
+      - 'f_return_std_20'
+      - 'f_rolling_std_ret_5'
+      - 'f_bandwidth_20'
+      - 'f_range_over_atr'
+      - 'f_donchian_pos_20'
+      - 'f_vwap_dev_over_atr14'
+      - 'f_zscore_close_50'
+      - 'f_ret_12'
+      - 'f_ret_24'
+    exclude_patterns: []
+
   fset-1:
     include_patterns:
       - 'f_di_diff_14'
@@ -230,12 +293,148 @@ feature_sets:
       - 'f_ret_12'
       - 'f_psar_trend'    
     exclude_patterns: []
+
+  # fset-5 — базовая линия (только Core-14)
+  fset-5:
+    inherit_from: core-14
+    include_patterns: []
+    exclude_patterns: []
+
+  # fset-6 — режимы (A)
+  fset-6:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_regime_trend_adx14'
+      - 'f_regime_bull_ema200'
+      - 'f_regime_highvol_atr14'
+    exclude_patterns: []
+
+  # fset-7 — сжатие волатильности (B)
+  fset-7:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_bb_squeeze_20'
+      - 'f_stdret20_over_atr14'
+    exclude_patterns: []
+
+  # fset-8 — форма распределений (F)
+  fset-8:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_rolling_skew_ret_20'
+      - 'f_rolling_kurt_ret_20'
+      - 'f_autocorr_ret1_lag1'
+      - 'f_autocorr_ret1_lag2'
+      - 'f_autocorr_ret1_lag3'
+      - 'f_autocorr_ret1_lag4'
+      - 'f_autocorr_ret1_lag5'
+    exclude_patterns: []
+
+  # fset-9 — давление к пробою (G)
+  fset-9:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_donchian_dist_upper_20_over_atr14'
+      - 'f_donchian_dist_lower_20_over_atr14'
+      - 'f_bars_since_upper_break_20'
+      - 'f_bars_since_lower_break_20'
+    exclude_patterns: []
+
+  # fset-10 — сессии (H)
+  fset-10:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_sess_london_open'
+      - 'f_sess_ny_open'
+      - 'f_sess_overlap'
+    exclude_patterns: []
+
+  # fset-11 — режимы + сжатие (A+B)
+  fset-11:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_regime_trend_adx14'
+      - 'f_regime_bull_ema200'
+      - 'f_regime_highvol_atr14'
+      - 'f_bb_squeeze_20'
+      - 'f_stdret20_over_atr14'
+    exclude_patterns: []
+
+  # fset-12 — пробой + сессии (G+H)
+  fset-12:
+    inherit_from: core-14
+    include_patterns:
+      - 'f_donchian_dist_upper_20_over_atr14'
+      - 'f_donchian_dist_lower_20_over_atr14'
+      - 'f_bars_since_upper_break_20'
+      - 'f_bars_since_lower_break_20'
+      - 'f_sess_london_open'
+      - 'f_sess_ny_open'
+      - 'f_sess_overlap'
+    exclude_patterns: []
+  # Календарные
+  f_hour_of_day_sin: { method: 'hour_sin' }
+  f_hour_of_day_cos: { method: 'hour_cos' }
+  f_dow: { method: 'day_of_week' }
+
+  # Целевая переменная
+  y_bs: { method: 'binary_target', inputs: ['close'], params: { horizon: 5 } }
+
+# =============================================================================
+# ОБЩИЕ НАСТРОЙКИ ПАЙПЛАЙНА
+# =============================================================================
+pipeline_settings:
+  # Входные данные (будет переопределено через dataset.active/items)
+  input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
+  
+  # Выходной файл
+  output_file: "01_data/processed/eurusd_features.parquet"
+  # Директория и шаблон имени выходного файла (для детерминированного пути)
+  output_dir: "01_data/processed"
+  output_pattern: "{symbol_lower}_{feature_set}_features.parquet"
+  
+  # Управление включением базовой колонки 'close' в итоговый датасет
+  # true — всегда добавлять 'close' независимо от набора признаков
+  # false — добавлять только если она явно включена в include_patterns
+  always_include_close: false
+  # Управление включением целевой метки 'y_bs' в итоговый датасет
+  # true — всегда добавлять цель, если она рассчитана
+  # false — цель можно исключить из финального датасета (например, для инференса)
+  include_target: true
+  # Дополнительные колонки, которые всегда сохранять в финальном датасете
+  base_keep_columns: []
+  
+  # Активный набор признаков (fset-1 | fset-2)
+  feature_set: fset-12
+  
+  # Параметры сохранения Parquet
+  parquet_settings:
+    engine: "pyarrow"
+    compression: "snappy"
+    index: true
+  
+  # Обработка пропущенных значений
+  missing_values:
+    strategy: "keep_all"  # "keep_all", "drop", "forward_fill", "backward_fill"
+    min_periods_required: 200  # Минимум записей для начала расчетов
+    # Сохраняем все данные для анализа пользователем
+    drop_all_nan_only: false
+  
+  # Настройки валидации
+  validation:
+    check_duplicates: true
+    check_sorting: true
+    max_missing_ratio: 0.1  # Максимальная доля пропусков (10%)
+  
+  # Настройки логирования
+  logging:
+    level: "INFO"  # DEBUG, INFO, WARNING, ERROR
     
 # =============================================================================
 # МЕТАДАННЫЕ И ОПИСАНИЯ
 # =============================================================================
 metadata:
-  version: "1.2.0"
+  version: "2.0"
   created_date: "2025-09-21"
   description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
   
