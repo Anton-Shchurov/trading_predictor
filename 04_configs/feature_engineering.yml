@@ -235,6 +235,23 @@ feature_sets:
       - 'f_ret_24'
     exclude_patterns: []
 
+  core-13:
+    include_patterns:
+      - 'f_adx_14'
+      - 'f_atr_14_pct'
+      - 'f_bandwidth_20'
+      - 'f_di_diff_14'
+      - 'f_donchian_pos_20'
+      - 'f_macd_12_26_9_hist'
+      - 'f_roc_5'
+      - 'f_rsi_14'
+      - 'f_vwap_dev_over_atr14'
+      - 'f_zscore_close_50'
+      - 'f_range_over_atr'
+      - 'f_rolling_std_ret_5'
+      - 'f_ret_24'
+    exclude_patterns: []
+    
   fset-1:
     include_patterns:
       - 'f_di_diff_14'
@@ -372,6 +389,43 @@ feature_sets:
       - 'f_sess_ny_open'
       - 'f_sess_overlap'
     exclude_patterns: []
+
+  # fset-13 — расширенный базовый (trend, volatility, momentum, range)
+  fset-13:
+    include_patterns:
+      - 'f_adx_14'
+      - 'f_atr_14_pct'
+      - 'f_bandwidth_20'
+      - 'f_di_diff_14'
+      - 'f_donchian_pos_20'
+      - 'f_macd_12_26_9_hist'
+      - 'f_range_over_atr'
+      - 'f_ret_24'
+      - 'f_return_std_20'
+      - 'f_roc_5'
+      - 'f_rolling_std_ret_5'
+      - 'f_vwap_dev_over_atr14'
+      - 'f_zscore_close_50'
+    exclude_patterns: []
+
+  # fset-14 — компактный базовый (core subset)
+  fset-14:
+    include_patterns:
+      - 'f_adx_14'
+      - 'f_atr_14_pct'
+      - 'f_bandwidth_20'
+      - 'f_di_diff_14'
+      - 'f_macd_12_26_9_hist'
+      - 'f_return_std_20'
+      - 'f_zscore_close_50'
+    exclude_patterns: []
+  
+  # fset-15 — базовая линия (только Core-13)
+  fset-15:
+    inherit_from: core-13
+    include_patterns: []
+    exclude_patterns: []
+
   # Календарные
   f_hour_of_day_sin: { method: 'hour_sin' }
   f_hour_of_day_cos: { method: 'hour_cos' }
@@ -405,7 +459,7 @@ pipeline_settings:
   base_keep_columns: []
   
   # Активный набор признаков (fset-1 | fset-2)
-  feature_set: fset-12
+  feature_set: fset-15
   
   # Параметры сохранения Parquet
   parquet_settings:
@@ -434,8 +488,8 @@ pipeline_settings:
 # МЕТАДАННЫЕ И ОПИСАНИЯ
 # =============================================================================
 metadata:
-  version: "2.0"
-  created_date: "2025-09-21"
+  version: "3.0"
+  created_date: "2025-10-16"
   description: "Конфигурация для создания технических и статистических признаков для EUR/USD часовых данных"
   
   # Ожидаемые колонки входных данных (стандартизированные имена)

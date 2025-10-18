@@ -12,7 +12,7 @@ metrics:
     - logloss
 
 experiment:
-  current_id: "exp_0014"
+  current_id: "exp_0017"
 
 common:
   random_state: 42
