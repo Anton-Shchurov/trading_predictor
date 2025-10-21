@@ -1,68 +1,67 @@
 version: 1
 task: binary
 classes:
-  - sell
-  - buy
-
+- sell
+- buy
 metrics:
   primary: f1
   others:
-    - balanced_accuracy
-    - accuracy
-    - logloss
-
+  - balanced_accuracy
+  - accuracy
+  - logloss
 experiment:
-  current_id: "exp_0017"
-
+  current_id: exp_0018
 common:
   random_state: 42
   early_stopping_rounds: 50
   eval_metric: logloss
-
 models:
   xgboost:
     enabled: true
     params:
       objective: binary:logistic
-      learning_rate: 0.05
-      n_estimators: 2000
-      max_depth: 6
-      subsample: 0.8
-      colsample_bytree: 0.8
+      learning_rate: 0.2947909664772785
+      n_estimators: 1291
+      max_depth: 9
+      subsample: 0.8421491510163616
+      colsample_bytree: 0.5230042839579707
       tree_method: hist
-      reg_lambda: 1.0
-      reg_alpha: 0.0
+      reg_lambda: 0.16346259914233485
+      reg_alpha: 1.6169450051501335
       eval_metric: logloss
+      min_child_weight: 7
+      gamma: 0.9803317817084722
     fit:
       verbose: false
-
   lightgbm:
     enabled: true
     params:
       objective: binary
       metric: binary_logloss
-      learning_rate: 0.05
-      n_estimators: 5000
-      num_leaves: 63
-      feature_fraction: 0.8
-      bagging_fraction: 0.8
+      learning_rate: 0.0014214922476224001
+      n_estimators: 2067
+      num_leaves: 100
+      feature_fraction: 0.6478981365112846
+      bagging_fraction: 0.7354008932141739
       bagging_freq: 1
-      lambda_l1: 0.0
-      lambda_l2: 0.0
+      lambda_l1: 0.0015845784175926116
+      lambda_l2: 0.03405533820825587
       verbose: -1
+      max_depth: 5
+      min_data_in_leaf: 28
+      min_split_gain: 0.5477693244460864
     fit:
       verbose: -1
-
   catboost:
     enabled: true
     params:
       loss_function: Logloss
-      learning_rate: 0.05
-      iterations: 5000
-      depth: 6
-      l2_leaf_reg: 3.0
+      learning_rate: 0.015457211061693104
+      iterations: 3729
+      depth: 5
+      l2_leaf_reg: 7.99892109706654
       od_type: Iter
       od_wait: 50
       verbose: false
-
-
+      random_strength: 0.4223956034287203
+      bagging_temperature: 0.4110687110789265
