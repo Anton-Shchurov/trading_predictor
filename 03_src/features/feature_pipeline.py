@@ -413,21 +413,44 @@ class FeatureEngineeringPipeline:
         self.logger.info("Saving results...")
         
         base_output = output_path or (self.config.get('pipeline_settings', {}) or {}).get('output_file')
-        if not base_output:
-            ds_name = (self.config.get('metadata', {}) or {}).get('dataset_name') \
-                or (self.config.get('dataset', {}) or {}).get('active', 'dataset')
-            ds_slug = self._slugify(ds_name)
-            base_output = f"01_data/processed/{ds_slug}__features.parquet"
-
+        
+        # Resolve feature set
         resolved_fs_name, _ = self._resolve_feature_set()
         fs_name = resolved_fs_name or (self.config.get('pipeline_settings') or {}).get('feature_set')
-        p = Path(base_output)
-        stem = p.stem
-        if fs_name and fs_name not in stem:
-            new_stem = f"{stem[:-len('_features')]}_{fs_name}_features" if stem.endswith('_features') else f"{stem}_{fs_name}"
-            p = p.with_name(new_stem + p.suffix)
 
-        resolved_output = self._resolve_to_project_root(str(p))
+        if not base_output:
+            # Try to use output_pattern from config first
+            pipeline_settings = self.config.get('pipeline_settings', {})
+            output_pattern = pipeline_settings.get('output_pattern')
+            output_dir = pipeline_settings.get('output_dir', '01_data/processed')
+            
+            if output_pattern and fs_name:
+                # Extract symbol for pattern formatting
+                dataset_cfg = self.config.get('dataset', {})
+                active_key = dataset_cfg.get('active')
+                items = dataset_cfg.get('items', {})
+                symbol = "ASSET"
+                if active_key and active_key in items:
+                     symbol = items[active_key].get('symbol', 'ASSET')
+                
+                filename = output_pattern.format(symbol_lower=str(symbol).lower(), feature_set=fs_name)
+                # Use Path "/" operator to join correctly
+                base_output = str(Path(output_dir) / filename)
+            else:
+                # Fallback to legacy slug-based logic
+                ds_name = (self.config.get('metadata', {}) or {}).get('dataset_name') \
+                    or (self.config.get('dataset', {}) or {}).get('active', 'dataset')
+                ds_slug = self._slugify(ds_name)
+                base_output = f"01_data/processed/{ds_slug}__features.parquet"
+
+                p = Path(base_output)
+                stem = p.stem
+                if fs_name and fs_name not in stem:
+                    new_stem = f"{stem[:-len('_features')]}_{fs_name}_features" if stem.endswith('_features') else f"{stem}_{fs_name}"
+                    p = p.with_name(new_stem + p.suffix)
+                base_output = str(p)
+
+        resolved_output = self._resolve_to_project_root(str(base_output))
         resolved_output.parent.mkdir(parents=True, exist_ok=True)
         
         parquet_settings = self.config.get('pipeline_settings', {}).get('parquet_settings', {})
@@ -478,7 +501,8 @@ class FeatureEngineeringPipeline:
             self.stats['created_features'] = len(df_selected.columns) - 5 # Approximate
             self.stats['total_columns'] = len(df_selected.columns)
             
-            self.save_results(df_selected, output_path)
+            saved_path, _ = self.save_results(df_selected, output_path)
+            self.stats['output_path'] = saved_path
             
             self.logger.info("PIPELINE COMPLETED SUCCESSFULLY!")
             return df_selected, self.stats
