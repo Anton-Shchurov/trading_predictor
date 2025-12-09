@@ -512,6 +512,7 @@ feature_definitions:
   # Целевая переменная
   # -------------------------------------------
   y_bs: { method: 'binary_target', inputs: ['close'], params: { horizon: 5 } }
+  y_bs_atr: { method: 'binary_target', inputs: ['close', '_atr_14_raw'], params: { horizon: 5, k: 0.5 } }
 
 # =============================================================================
 # 4. МЕТАДАННЫЕ И ОПИСАНИЯ
