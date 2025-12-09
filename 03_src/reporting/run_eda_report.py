@@ -1,6 +1,6 @@
 """
 Быстрый запуск генерации отчетов EDA из командной строки.
-Использование: python quick_report.py
+Использование: python run_eda_report.py
 """
 
 import sys
