@@ -68,6 +68,9 @@ def _infer_run_dir(project_root: Path, reports_dir: Path) -> Path:
     prefix = str(exp_id).lower()
     run_dir = reports_dir / f"{prefix}_{_timestamp()}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "models").mkdir(exist_ok=True)
+    (run_dir / "plots").mkdir(exist_ok=True)
+    (run_dir / "metrics").mkdir(exist_ok=True)
     return run_dir
 
 
@@ -291,13 +294,36 @@ def _update_models_yaml(models_yaml_path: Path, best_params_map: Dict[str, Dict[
     backup_path = models_yaml_path.with_suffix(models_yaml_path.suffix + f".{_timestamp()}.bak")
     backup_path.write_text(original_text, encoding="utf-8")
 
-    data = _load_yaml(models_yaml_path)
-    models_section = data.setdefault("models", {})
-    for name, best_params in (best_params_map or {}).items():
-        model_cfg = models_section.setdefault(name, {})
-        params = model_cfg.setdefault("params", {})
-        params.update(best_params or {})
-    _save_yaml(models_yaml_path, data)
+    try:
+        from ruamel.yaml import YAML
+        yaml_parser = YAML()
+        yaml_parser.preserve_quotes = True
+        data = yaml_parser.load(original_text)
+        
+        models_section = data.get("models", {})
+        for name, best_params in (best_params_map or {}).items():
+            if name in models_section:
+                # Update best_params section directly
+                if "best_params" not in models_section[name]:
+                    models_section[name]["best_params"] = {}
+                # Update keys one by one to preserve structure/comments if exist
+                for k, v in best_params.items():
+                    models_section[name]["best_params"][k] = v
+                # Automatically enable use_best_params
+                models_section[name]["use_best_params"] = True
+        
+        with open(models_yaml_path, "w", encoding="utf-8") as f:
+            yaml_parser.dump(data, f)
+            
+    except ImportError:
+        print("Warning: ruamel.yaml not found, falling back to pyyaml (comments might be lost).")
+        data = _load_yaml(models_yaml_path)
+        models_section = data.setdefault("models", {})
+        for name, best_params in (best_params_map or {}).items():
+            model_cfg = models_section.setdefault(name, {})
+            model_cfg["best_params"] = best_params
+            model_cfg["use_best_params"] = True
+        _save_yaml(models_yaml_path, data)
 
 
 def tune_hyperparameters(
@@ -316,9 +342,21 @@ def tune_hyperparameters(
     Возвращает словарь с результатами по моделям и путями к артефактам.
     """
     project_root = Path(__file__).resolve().parents[2]
-    features_fp = project_root / features_path
-    splits_fp = project_root / splits_config_path
+    # models_fp is needed early for data config
     models_fp = project_root / models_config_path
+    models_cfg = _load_yaml(models_fp)
+    
+    # Read data config
+    data_cfg = models_cfg.get("data", {})
+    target_col = data_cfg.get("target_column", "y_bs")
+    
+    # Resolve features path: priority to config if default arg is used
+    if features_path == "01_data/processed/eurusd_features.parquet" and data_cfg.get("features_path"):
+        features_fp = project_root / data_cfg.get("features_path")
+    else:
+        features_fp = project_root / features_path
+
+    splits_fp = project_root / splits_config_path
     reports_dir_path = project_root / reports_dir
     reports_dir_path.mkdir(parents=True, exist_ok=True)
 
@@ -334,7 +372,7 @@ def tune_hyperparameters(
         raise FileNotFoundError(f"Не найден файл признаков: {features_fp}")
     df = pd.read_parquet(features_fp)
     df = _ensure_sorted_index(df)
-    X, y = _validate_features(df)
+    X, y = _validate_features(df, target_col=target_col)
 
     # Конфиг сплитов и фолдов
     cfg_raw = _load_yaml(splits_fp)
@@ -359,15 +397,19 @@ def tune_hyperparameters(
         _save_cv_indices(folds, run_dir_path / "cv_indices.json", X_trval.index)
 
     # Балансировка классов
-    class_weights = _compute_class_weights(y_train)
+    # Check pipeline settings for class weights usage
+    pipeline_settings = models_cfg.get("pipeline_settings", {})
+    if pipeline_settings.get("use_class_weights", False):
+        class_weights = _compute_class_weights(y_train)
+    else:
+        class_weights = {0: 1.0, 1: 1.0}
 
     # Конфиги моделей и тюнинга
-    models_cfg = _load_yaml(models_fp)
     enabled = _list_enabled_models(models_cfg)
     model_list = enabled if models is None else list(models)
     common_cfg = models_cfg.get("common", {})
 
-    hpt_cfg = _load_yaml(project_root / config_path)
+    hpt_cfg = models_cfg # Tuning config is now part of models.yml
     optuna_cfg = hpt_cfg.get("optuna", {})
     if n_trials is None:
         n_trials = int(optuna_cfg.get("n_trials", 50))
@@ -379,8 +421,18 @@ def tune_hyperparameters(
     best_params_map: Dict[str, Dict[str, Any]] = {}
 
     for model_name in model_list:
-        base_model_cfg = (models_cfg.get("models", {}).get(model_name) or {})
-        space = (hpt_cfg.get("spaces", {}).get(model_name) or {})
+        m_cfg_full = (models_cfg.get("models", {}).get(model_name) or {})
+        base_model_cfg = {
+            "params": m_cfg_full.get("default_params", {}),
+            "fit": m_cfg_full.get("fit", {})
+        }
+        
+        # Read space from hp_tuning_params
+        space = m_cfg_full.get("hp_tuning_params", {})
+        if not space:
+             print(f"Warning: No hp_tuning_params found for {model_name}, skipping tuning.")
+             continue
+
         study = optuna.create_study(direction="maximize", pruner=pruner)
 
         objective = _objective_factory(
@@ -415,9 +467,9 @@ def tune_hyperparameters(
         )
 
         # Сохранение графиков
-        cm_path = run_dir_path / f"cm_{model_name}.png"
+        cm_path = run_dir_path / "plots" / f"cm_{model_name}.png"
         _save_confusion_matrix_png(cm_path, y_true=y_test.values, y_pred=y_pred_test)
-        roc_path = run_dir_path / f"roc_{model_name}.png"
+        roc_path = run_dir_path / "plots" / f"roc_{model_name}.png"
         _save_roc_curve_png(roc_path, y_true=y_test.values, y_proba=y_proba_test)
 
         # Соберём результаты по модели
@@ -447,12 +499,14 @@ def tune_hyperparameters(
         )
 
         # Сохранение частных артефактов по модели
-        _save_json(run_dir_path / f"optuna_study_{model_name}.json", _study_to_records(study))
+        _save_json(run_dir_path / "metrics" / f"optuna_study_{model_name}.json", _study_to_records(study))
 
     # Сохранение агрегированных артефактов запуска
-    _save_json(run_dir_path / "hyperparameter_tuning_results.json", results)
-    pd.DataFrame(summary_rows).to_csv(run_dir_path / "hyperparameter_tuning_summary.csv", index=False)
-    _save_yaml(run_dir_path / "best_params.yml", best_params_map)
+    _save_json(run_dir_path / "metrics" / "hyperparameter_tuning_results.json", results)
+    pd.DataFrame(summary_rows).to_csv(run_dir_path / "metrics" / "hyperparameter_tuning_summary.csv", index=False)
+    _save_yaml(run_dir_path / "metrics" / "best_params.yml", best_params_map)
+    # Save config snapshot
+    _save_yaml(run_dir_path / "metrics" / "experiment_config.yaml", models_cfg)
 
     # Обновление models.yml
     if update_models_yaml and best_params_map:

@@ -1,15 +1,40 @@
 version: 1
 task: binary
-classes:
-  - sell
-  - buy
 
+# ===========================
+# PIPELINE SETTINGS
+# ===========================
+pipeline_settings:
+  run_hyperparameter_tuning: false    # true = HP tuning, false = standard training
+  use_class_weights: false            # Disabled by default
+data:
+  features_path: "01_data/processed/eurusd_fset-15_features.parquet"
+  target_column: "y_buy_else_atr"     # Dynamic target column name
+
+# ===========================
+# OPTUNA SETTINGS
+# ===========================
+optuna:
+  n_trials: 1
+  timeout:
+  pruner: median
+
+
+# ===========================
+# METRICS
+# ===========================
 metrics:
-  primary: f1
-  others:
-    - balanced_accuracy
-    - accuracy
-    - logloss
+  primary: f1_class_1    # Sniper strategy
+  secondary:
+  - precision_class_1
+  - recall_class_1
+  - f1_class_0
+  - f1_macro
+  standard:
+  - balanced_accuracy
+  - accuracy
+  - logloss
+  - roc_auc
 
 experiment:
   current_id: "exp_0019"
@@ -19,10 +44,14 @@ common:
   early_stopping_rounds: 50
   eval_metric: logloss
 
+# ===========================
+# MODELS
+# ===========================
 models:
   xgboost:
     enabled: true
-    params:
+    use_best_params: false   # Toggle: true = use best_params, false = use default_params
+    default_params:
       objective: binary:logistic
       learning_rate: 0.05
       n_estimators: 2000
@@ -33,12 +62,37 @@ models:
       reg_lambda: 1.0
       reg_alpha: 0.0
       eval_metric: logloss
+
+    hp_tuning_params:    # Search space for Optuna
+      learning_rate: loguniform(1e-3, 0.3)
+      n_estimators: int(10, 20)
+      max_depth: int(3, 10)
+      min_child_weight: int(1, 10)
+      subsample: uniform(0.5, 1.0)
+      colsample_bytree: uniform(0.5, 1.0)
+      reg_lambda: loguniform(1e-3, 10)
+      reg_alpha: loguniform(1e-3, 10)
+      gamma: uniform(0.0, 5.0)
+
+    best_params:         # Programmatically populated
+
+      learning_rate: 0.04204281719293329
+      n_estimators: 10
+      max_depth: 3
+      min_child_weight: 3
+      subsample: 0.5539878658152854
+      colsample_bytree: 0.9174950118650019
+      reg_lambda: 0.14244100462926879
+      reg_alpha: 0.0028785672871559534
+      gamma: 4.214661824978326
     fit:
       verbose: false
 
   lightgbm:
-    enabled: true
-    params:
+    enabled: false
+    use_best_params: false
+
+    default_params:
       objective: binary
       metric: binary_logloss
       learning_rate: 0.05
@@ -50,12 +104,29 @@ models:
       lambda_l1: 0.0
       lambda_l2: 0.0
       verbose: -1
+
+    hp_tuning_params:
+      learning_rate: loguniform(1e-3, 0.2)
+      n_estimators: int(500, 5000)
+      num_leaves: int(31, 255)
+      max_depth: int(5, 16)
+      feature_fraction: uniform(0.6, 1.0)
+      bagging_fraction: uniform(0.6, 1.0)
+      bagging_freq: int(0, 5)
+      min_data_in_leaf: int(10, 200)
+      lambda_l1: loguniform(1e-3, 10)
+      lambda_l2: loguniform(1e-3, 10)
+      min_split_gain: uniform(0.0, 1.0)
+
+    best_params: {}
     fit:
       verbose: -1
 
   catboost:
-    enabled: true
-    params:
+    enabled: false
+    use_best_params: false
+
+    default_params:
       loss_function: Logloss
       learning_rate: 0.05
       iterations: 5000
@@ -64,3 +135,13 @@ models:
       od_type: Iter
       od_wait: 50
       verbose: false
+
+    hp_tuning_params:
+      learning_rate: loguniform(1e-3, 0.2)
+      iterations: int(500, 5000)
+      depth: int(4, 10)
+      l2_leaf_reg: loguniform(1.0, 30.0)
+      random_strength: uniform(0.0, 1.0)
+      bagging_temperature: uniform(0.0, 1.0)
+
+    best_params: {}

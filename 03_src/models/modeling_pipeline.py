@@ -46,17 +46,22 @@ def _ensure_sorted_index(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _validate_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    # Требуем столбцы признаков f_* и бинарную целевую переменную y_bs (0/1)
+def _validate_features(df: pd.DataFrame, target_col: str = "y_bs") -> Tuple[pd.DataFrame, pd.Series]:
+    # Требуем столбцы признаков f_* и бинарную целевую переменную
     feature_cols = [c for c in df.columns if c.startswith("f_") or c == "close"]
     # Явно исключаем диагностические колонки, если они случайно попали в датасет
     debug_exclude = {"f_ret_h", "f_dead_eps", "f_atr"}
     feature_cols = [c for c in feature_cols if c not in debug_exclude]
-    if "y_bs" not in df.columns:
-        raise ValueError("В датасете отсутствует колонка 'y_bs' — создайте бинарные метки (0/1)")
+    
+    if target_col not in df.columns:
+        # Fallback check for legacy 'y_bs' if not found
+        if "y_bs" in df.columns:
+             target_col = "y_bs"
+        else:
+             raise ValueError(f"В датасете отсутствует колонка '{target_col}' — создайте бинарные метки")
 
     X = df[feature_cols].astype(float)
-    y = df["y_bs"].astype("Int8")
+    y = df[target_col].astype("Int8")
 
     # Убираем строки с NaN/inf по X или y
     mask = (~X.isna().any(axis=1)) & (~np.isinf(X).any(axis=1)) & y.notna()
@@ -176,8 +181,20 @@ def _save_cv_indices(folds: List[Tuple[np.ndarray, np.ndarray]], path: Path, ind
 
 
 def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarray] = None) -> Dict[str, float]:
+    from sklearn.metrics import precision_score, recall_score
+
     res = {
-        "f1": f1_score(y_true, y_pred),
+        # Primary Target Metrics (Sniper Strategy)
+        "precision_class_1": precision_score(y_true, y_pred, pos_label=1, zero_division=0),
+        "recall_class_1": recall_score(y_true, y_pred, pos_label=1, zero_division=0),
+        "f1_class_1": f1_score(y_true, y_pred, pos_label=1, zero_division=0),
+        "f1": f1_score(y_true, y_pred, pos_label=1, zero_division=0),  # Compatibility
+
+        # Secondary Metrics
+        "f1_class_0": f1_score(y_true, y_pred, pos_label=0, zero_division=0),
+        "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
+
+        # Standard Metrics
         "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
         "accuracy": accuracy_score(y_true, y_pred),
     }
@@ -368,17 +385,25 @@ def run_modeling_pipeline(
     save_dir_path = project_root / save_dir
     save_dir_path.mkdir(parents=True, exist_ok=True)
 
-    # 1) Загрузка
+    # 7) Читаем конфиг моделей и определяем список моделей
+    models_cfg = _load_yaml(models_fp)
+    
+    # NEW: Read data config
+    data_cfg = models_cfg.get("data", {})
+    target_col = data_cfg.get("target_column", "y_bs")
+    
+    # 1) Загрузка (Updated to use config path if available, else default)
+    # If features_path argument is default, try to use config path
+    if features_path == "01_data/processed/eurusd_features.parquet" and data_cfg.get("features_path"):
+         features_fp = project_root / data_cfg.get("features_path")
+         
     if not features_fp.exists():
         raise FileNotFoundError(f"Не найден файл признаков: {features_fp}")
     df = pd.read_parquet(features_fp)
-    # Проверка наличия бинарной цели y_bs
-    if "y_bs" not in df.columns:
-        raise ValueError("В датасете отсутствует бинарная целевая переменная 'y_bs'. Подготовьте размеченный датасет.")
 
     # 2) Валидация/сортировка
     df = _ensure_sorted_index(df)
-    X, y = _validate_features(df)
+    X, y = _validate_features(df, target_col=target_col)
 
     # 3) Загрузка конфигурации сплитов
     cfg_raw = _load_yaml(splits_fp)
@@ -409,10 +434,15 @@ def run_modeling_pipeline(
             yaml.safe_dump(split_meta, f, allow_unicode=True)
 
     # 6) Веса классов
-    class_weights = _compute_class_weights(y_train)
+    # Check pipeline settings for class weights usage
+    pipeline_settings = models_cfg.get("pipeline_settings", {})
+    if pipeline_settings.get("use_class_weights", False):
+        class_weights = _compute_class_weights(y_train)
+    else:
+        # Если веса отключены, используем единичные веса или None (зависит от логики моделей)
+        # Для унификации передадим словарь с 1.0, но модели могут это игнорировать если настроено
+        class_weights = {0: 1.0, 1: 1.0}
 
-    # 7) Читаем конфиг моделей и определяем список моделей
-    models_cfg = _load_yaml(models_fp)
     enabled_models = [name for name, cfg in (models_cfg.get("models") or {}).items() if (cfg or {}).get("enabled", False)]
     models = enabled_models if models_to_run is None else models_to_run
     common_cfg = models_cfg.get("common", {})
@@ -424,15 +454,48 @@ def run_modeling_pipeline(
             X_tr, y_tr = X_trval.iloc[tr_idx], y_trval.iloc[tr_idx]
             X_va, y_va = X_trval.iloc[va_idx], y_trval.iloc[va_idx]
 
-            model_cfg = (models_cfg.get("models", {}).get(model_name) or {})
-            clf, metrics = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights, model_cfg, common_cfg)
+            # Determine params based on config
+            m_config = (models_cfg.get("models", {}).get(model_name) or {})
+            use_best = m_config.get("use_best_params", False)
+            if use_best:
+                # Merge default and best, best overrides
+                base_params = m_config.get("default_params", {})
+                best_p = m_config.get("best_params", {})
+                # Simple shallow merge
+                final_params = {**base_params, **best_p}
+            else:
+                final_params = m_config.get("default_params", {})
+            
+            # Construct model_cfg expected by _fit_and_eval_model
+            # It expects "params" key
+            model_run_cfg = {
+                "params": final_params,
+                "fit": m_config.get("fit", {})
+            }
+
+            clf, metrics = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights, model_run_cfg, common_cfg)
             fold_metrics.append(metrics)
 
         # усреднение метрик по фолдам
         avg_metrics = {k: float(np.nanmean([m.get(k, np.nan) for m in fold_metrics])) for k in fold_metrics[0].keys()}
 
         # финальное дообучение на train+valid и оценка на test
-        clf_final, _ = _fit_and_eval_model(model_name, X_trval, y_trval, X_valid, y_valid, class_weights, (models_cfg.get("models", {}).get(model_name) or {}), common_cfg)
+        # Re-resolve params for final fit (same logic)
+        m_config = (models_cfg.get("models", {}).get(model_name) or {})
+        use_best = m_config.get("use_best_params", False)
+        if use_best:
+            base_params = m_config.get("default_params", {})
+            best_p = m_config.get("best_params", {})
+            final_params = {**base_params, **best_p}
+        else:
+            final_params = m_config.get("default_params", {})
+            
+        model_run_cfg = {
+            "params": final_params,
+            "fit": m_config.get("fit", {})
+        }
+        
+        clf_final, _ = _fit_and_eval_model(model_name, X_trval, y_trval, X_valid, y_valid, class_weights, model_run_cfg, common_cfg)
         # оценим на тесте
         if model_name == "catboost":
             y_pred_test, y_proba_test = _predict_catboost(clf_final, X_test)
