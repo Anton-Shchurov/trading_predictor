@@ -9,7 +9,7 @@
 dataset:
   # Активный ключ датасета из items. Меняйте здесь для смены данных.
   active: eurusd_h1_oanda_2010_2024
-  
+
   # Список доступных датасетов
   items:
     eurusd_h1_oanda_2010_2024:
@@ -30,39 +30,40 @@ pipeline_settings:
   # Входные и выходные пути
   # input_file будет переопределен автоматически, если указан dataset.active
   input_file: "01_data/raw/EURUSD_2010-2024_H1_OANDA.csv"
-  
+
   output_dir: "01_data/processed"
   # Шаблон имени выходного файла. {feature_set} подставляется автоматически.
   output_pattern: "{symbol_lower}_{feature_set}_features.parquet"
   # Если output_file не задан явно, он формируется из output_dir + имени датасета + output_pattern
-  # output_file: "01_data/processed/eurusd_features.parquet" 
+  # output_file: "01_data/processed/eurusd_features.parquet"
 
   # Параметры датасета
-  always_include_close: false  # true: всегда добавлять 'close', false: только если есть в feature_set
-  include_target: true         # true: всегда добавлять 'y_bs'
-  base_keep_columns: []        # Дополнительные колонки из исхоного файла, которые нужно сохранить
-  
+  always_include_close: false # true: всегда добавлять 'close', false: только если есть в feature_set
+  include_target: true # true: всегда добавлять целевую, определенную в target_column
+  target_column: "y_buy_else_atr" # Имя целевой колонки (default: y_bs)
+  base_keep_columns: [] # Дополнительные колонки из исхоного файла, которые нужно сохранить
+
   # Параметры сохранения
   parquet_settings:
     engine: "pyarrow"
     compression: "snappy"
     index: true
-  
+
   # Обработка пропущенных значений
   missing_values:
-    strategy: "keep_all"       # "keep_all", "drop", "forward_fill", "backward_fill"
-    min_periods_required: 200  # Минимум записей для начала расчетов (прогрев индикаторов)
+    strategy: "keep_all" # "keep_all", "drop", "forward_fill", "backward_fill"
+    min_periods_required: 200 # Минимум записей для начала расчетов (прогрев индикаторов)
     drop_all_nan_only: false
-  
+
   # Настройки валидации данных
   validation:
     check_duplicates: true
     check_sorting: true
-    max_missing_ratio: 0.1     # Максимально допустимая доля пропусков (10%)
-  
+    max_missing_ratio: 0.1 # Максимально допустимая доля пропусков (10%)
+
   # Настройки логирования
   logging:
-    level: "INFO" 
+    level: "INFO"
 
 # =============================================================================
 # 2. НАБОРЫ ПРИЗНАКОВ (FEATURE SETS)
@@ -82,98 +83,98 @@ feature_sets:
   # -----------------------------------------------
   core-14:
     include_patterns:
-      - 'f_adx_14'
-      - 'f_di_diff_14'
-      - 'f_macd_12_26_9_hist'
-      - 'f_roc_5'
-      - 'f_atr_14_pct'
-      - 'f_return_std_20'
-      - 'f_rolling_std_ret_5'
-      - 'f_bandwidth_20'
-      - 'f_range_over_atr'
-      - 'f_donchian_pos_20'
-      - 'f_vwap_dev_over_atr14'
-      - 'f_zscore_close_50'
-      - 'f_ret_12'
-      - 'f_ret_24'
+      - "f_adx_14"
+      - "f_di_diff_14"
+      - "f_macd_12_26_9_hist"
+      - "f_roc_5"
+      - "f_atr_14_pct"
+      - "f_return_std_20"
+      - "f_rolling_std_ret_5"
+      - "f_bandwidth_20"
+      - "f_range_over_atr"
+      - "f_donchian_pos_20"
+      - "f_vwap_dev_over_atr14"
+      - "f_zscore_close_50"
+      - "f_ret_12"
+      - "f_ret_24"
     exclude_patterns: []
 
   core-13:
     include_patterns:
-      - 'f_adx_14'
-      - 'f_atr_14_pct'
-      - 'f_bandwidth_20'
-      - 'f_di_diff_14'
-      - 'f_donchian_pos_20'
-      - 'f_macd_12_26_9_hist'
-      - 'f_roc_5'
-      - 'f_rsi_14'
-      - 'f_vwap_dev_over_atr14'
-      - 'f_zscore_close_50'
-      - 'f_range_over_atr'
-      - 'f_rolling_std_ret_5'
-      - 'f_ret_24'
+      - "f_adx_14"
+      - "f_atr_14_pct"
+      - "f_bandwidth_20"
+      - "f_di_diff_14"
+      - "f_donchian_pos_20"
+      - "f_macd_12_26_9_hist"
+      - "f_roc_5"
+      - "f_rsi_14"
+      - "f_vwap_dev_over_atr14"
+      - "f_zscore_close_50"
+      - "f_range_over_atr"
+      - "f_rolling_std_ret_5"
+      - "f_ret_24"
     exclude_patterns: []
 
   # Архив экспериментов / Вариации
   # -----------------------------------------------
   fset-1:
     include_patterns:
-      - 'f_di_diff_14'
-      - 'f_vwap_dev_over_atr14'
-      - 'f_donchian_pos_20'
-      - 'f_rsi_14'
-      - 'f_zscore_close_50'
-      - 'close'
-      - 'f_hour_of_day_cos'
-      - 'f_rsi_5'
-      - 'f_roc_5'
-      - 'f_ema20_slope'
-      - 'f_hour_of_day_sin'
-      - 'f_ret_12'
+      - "f_di_diff_14"
+      - "f_vwap_dev_over_atr14"
+      - "f_donchian_pos_20"
+      - "f_rsi_14"
+      - "f_zscore_close_50"
+      - "close"
+      - "f_hour_of_day_cos"
+      - "f_rsi_5"
+      - "f_roc_5"
+      - "f_ema20_slope"
+      - "f_hour_of_day_sin"
+      - "f_ret_12"
     exclude_patterns: []
 
   fset-2:
     inherit_from: fset-1
     include_patterns:
-      - 'f_macd_12_26_9_hist'
-      - 'f_atr_14_pct'
-      - 'f_rolling_mean_ret_5'
-      - 'f_keltner_pos_20'
-      - 'f_bandwidth_20'
-      - 'f_psar_trend'
-      - 'f_ret_1_z20'
-      - 'f_range_over_atr'
+      - "f_macd_12_26_9_hist"
+      - "f_atr_14_pct"
+      - "f_rolling_mean_ret_5"
+      - "f_keltner_pos_20"
+      - "f_bandwidth_20"
+      - "f_psar_trend"
+      - "f_ret_1_z20"
+      - "f_range_over_atr"
     exclude_patterns: []
 
   fset-3:
     include_patterns:
-      - 'close'
-      - 'f_macd_12_26_9_hist'
-      - 'f_di_diff_14'
-      - 'f_adx_14'
-      - 'f_rsi_14'
-      - 'f_atr_14_pct'
-      - 'f_return_std_20'
-      - 'f_range_over_atr'
-      - 'f_donchian_pos_20'
-      - 'f_bandwidth_20'
-      - 'f_ret_24'
-      - 'f_rolling_std_ret_5'
-      - 'f_zscore_close_50'
-      - 'f_vwap_dev_over_atr14'
+      - "close"
+      - "f_macd_12_26_9_hist"
+      - "f_di_diff_14"
+      - "f_adx_14"
+      - "f_rsi_14"
+      - "f_atr_14_pct"
+      - "f_return_std_20"
+      - "f_range_over_atr"
+      - "f_donchian_pos_20"
+      - "f_bandwidth_20"
+      - "f_ret_24"
+      - "f_rolling_std_ret_5"
+      - "f_zscore_close_50"
+      - "f_vwap_dev_over_atr14"
     exclude_patterns: []
 
   fset-4:
     inherit_from: fset-3
     include_patterns:
-      - 'f_ema_50'
-      - 'f_ema_200'
-      - 'f_ema20_slope'
-      - 'f_rsi_5'
-      - 'f_roc_5'
-      - 'f_ret_12'
-      - 'f_psar_trend'    
+      - "f_ema_50"
+      - "f_ema_200"
+      - "f_ema20_slope"
+      - "f_rsi_5"
+      - "f_roc_5"
+      - "f_ret_12"
+      - "f_psar_trend"
     exclude_patterns: []
 
   # fset-5 — базовая линия (только Core-14)
@@ -188,49 +189,49 @@ feature_sets:
   fset-6:
     inherit_from: core-14
     include_patterns:
-      - 'f_regime_trend_adx14'
-      - 'f_regime_bull_ema200'
-      - 'f_regime_highvol_atr14'
+      - "f_regime_trend_adx14"
+      - "f_regime_bull_ema200"
+      - "f_regime_highvol_atr14"
     exclude_patterns: []
 
   # fset-7 — сжатие волатильности (B)
   fset-7:
     inherit_from: core-14
     include_patterns:
-      - 'f_bb_squeeze_20'
-      - 'f_stdret20_over_atr14'
+      - "f_bb_squeeze_20"
+      - "f_stdret20_over_atr14"
     exclude_patterns: []
 
   # fset-8 — форма распределений (F)
   fset-8:
     inherit_from: core-14
     include_patterns:
-      - 'f_rolling_skew_ret_20'
-      - 'f_rolling_kurt_ret_20'
-      - 'f_autocorr_ret1_lag1'
-      - 'f_autocorr_ret1_lag2'
-      - 'f_autocorr_ret1_lag3'
-      - 'f_autocorr_ret1_lag4'
-      - 'f_autocorr_ret1_lag5'
+      - "f_rolling_skew_ret_20"
+      - "f_rolling_kurt_ret_20"
+      - "f_autocorr_ret1_lag1"
+      - "f_autocorr_ret1_lag2"
+      - "f_autocorr_ret1_lag3"
+      - "f_autocorr_ret1_lag4"
+      - "f_autocorr_ret1_lag5"
     exclude_patterns: []
 
   # fset-9 — давление к пробою (G)
   fset-9:
     inherit_from: core-14
     include_patterns:
-      - 'f_donchian_dist_upper_20_over_atr14'
-      - 'f_donchian_dist_lower_20_over_atr14'
-      - 'f_bars_since_upper_break_20'
-      - 'f_bars_since_lower_break_20'
+      - "f_donchian_dist_upper_20_over_atr14"
+      - "f_donchian_dist_lower_20_over_atr14"
+      - "f_bars_since_upper_break_20"
+      - "f_bars_since_lower_break_20"
     exclude_patterns: []
 
   # fset-10 — сессии (H)
   fset-10:
     inherit_from: core-14
     include_patterns:
-      - 'f_sess_london_open'
-      - 'f_sess_ny_open'
-      - 'f_sess_overlap'
+      - "f_sess_london_open"
+      - "f_sess_ny_open"
+      - "f_sess_overlap"
     exclude_patterns: []
 
   # Комбинированные наборы
@@ -239,54 +240,54 @@ feature_sets:
   fset-11:
     inherit_from: core-14
     include_patterns:
-      - 'f_regime_trend_adx14'
-      - 'f_regime_bull_ema200'
-      - 'f_regime_highvol_atr14'
-      - 'f_bb_squeeze_20'
-      - 'f_stdret20_over_atr14'
+      - "f_regime_trend_adx14"
+      - "f_regime_bull_ema200"
+      - "f_regime_highvol_atr14"
+      - "f_bb_squeeze_20"
+      - "f_stdret20_over_atr14"
     exclude_patterns: []
 
   # fset-12 — пробой + сессии (G+H)
   fset-12:
     inherit_from: core-14
     include_patterns:
-      - 'f_donchian_dist_upper_20_over_atr14'
-      - 'f_donchian_dist_lower_20_over_atr14'
-      - 'f_bars_since_upper_break_20'
-      - 'f_bars_since_lower_break_20'
-      - 'f_sess_london_open'
-      - 'f_sess_ny_open'
-      - 'f_sess_overlap'
+      - "f_donchian_dist_upper_20_over_atr14"
+      - "f_donchian_dist_lower_20_over_atr14"
+      - "f_bars_since_upper_break_20"
+      - "f_bars_since_lower_break_20"
+      - "f_sess_london_open"
+      - "f_sess_ny_open"
+      - "f_sess_overlap"
     exclude_patterns: []
 
   # fset-13 — расширенный базовый (trend, volatility, momentum, range)
   fset-13:
     include_patterns:
-      - 'f_adx_14'
-      - 'f_atr_14_pct'
-      - 'f_bandwidth_20'
-      - 'f_di_diff_14'
-      - 'f_donchian_pos_20'
-      - 'f_macd_12_26_9_hist'
-      - 'f_range_over_atr'
-      - 'f_ret_24'
-      - 'f_return_std_20'
-      - 'f_roc_5'
-      - 'f_rolling_std_ret_5'
-      - 'f_vwap_dev_over_atr14'
-      - 'f_zscore_close_50'
+      - "f_adx_14"
+      - "f_atr_14_pct"
+      - "f_bandwidth_20"
+      - "f_di_diff_14"
+      - "f_donchian_pos_20"
+      - "f_macd_12_26_9_hist"
+      - "f_range_over_atr"
+      - "f_ret_24"
+      - "f_return_std_20"
+      - "f_roc_5"
+      - "f_rolling_std_ret_5"
+      - "f_vwap_dev_over_atr14"
+      - "f_zscore_close_50"
     exclude_patterns: []
 
   # fset-14 — компактный базовый (core subset)
   fset-14:
     include_patterns:
-      - 'f_adx_14'
-      - 'f_atr_14_pct'
-      - 'f_bandwidth_20'
-      - 'f_di_diff_14'
-      - 'f_macd_12_26_9_hist'
-      - 'f_return_std_20'
-      - 'f_zscore_close_50'
+      - "f_adx_14"
+      - "f_atr_14_pct"
+      - "f_bandwidth_20"
+      - "f_di_diff_14"
+      - "f_macd_12_26_9_hist"
+      - "f_return_std_20"
+      - "f_zscore_close_50"
     exclude_patterns: []
 
 # =============================================================================
@@ -296,223 +297,323 @@ feature_definitions:
   # ---------------------------------------------------------------------------
   # Базовые и промежуточные признаки (сырые расчеты)
   # ---------------------------------------------------------------------------
-  close: { method: 'identity', inputs: ['Close'] }
+  close: { method: "identity", inputs: ["Close"] }
 
-  _ema_10_raw: { method: 'ema', inputs: ['close'], params: { period: 10 }, is_intermediate: true }
-  _ema_20_raw: { method: 'ema', inputs: ['close'], params: { period: 20 }, is_intermediate: true }
-  _ema_50_raw: { method: 'ema', inputs: ['close'], params: { period: 50 }, is_intermediate: true }
-  _ema_200_raw: { method: 'ema', inputs: ['close'], params: { period: 200 }, is_intermediate: true }
-  _atr_14_raw: { method: 'atr', inputs: ['High', 'Low', 'close'], params: { period: 14 }, is_intermediate: true }
-  _atr_20_raw: { method: 'atr', inputs: ['High', 'Low', 'close'], params: { period: 20 }, is_intermediate: true }
-  _macd_raw: { method: 'macd', inputs: ['close'], params: { fast: 12, slow: 26, signal: 9 }, is_intermediate: true }
-  _adx_raw: { method: 'adx', inputs: ['High', 'Low', 'close'], params: { period: 14 }, is_intermediate: true }
-  _bbands_raw: { method: 'bbands', inputs: ['close'], params: { period: 20, std_dev: 2.0 }, is_intermediate: true }
-  _kc_raw: { method: 'kc', inputs: ['High', 'Low', 'close'], needs: ['_atr_20_raw'], params: { ema_period: 20, atr_period: 20 }, is_intermediate: true }
-  _donchian_raw: { method: 'donchian', inputs: ['High', 'Low'], params: { period: 20 }, is_intermediate: true }
-  _log_ret_1_raw: { method: 'log_return', inputs: ['close'], params: { period: 1 }, is_intermediate: true }
-  _vwap_5_raw: { method: 'vwap', inputs: ['close', 'Volume'], params: { period: 5 }, is_intermediate: true }
-  _psar_raw: { method: 'psar', inputs: ['High', 'Low', 'close'], params: { af_initial: 0.02, af_max: 0.2 }, is_intermediate: true }
-  
+  _ema_10_raw:
+    {
+      method: "ema",
+      inputs: ["close"],
+      params: { period: 10 },
+      is_intermediate: true,
+    }
+  _ema_20_raw:
+    {
+      method: "ema",
+      inputs: ["close"],
+      params: { period: 20 },
+      is_intermediate: true,
+    }
+  _ema_50_raw:
+    {
+      method: "ema",
+      inputs: ["close"],
+      params: { period: 50 },
+      is_intermediate: true,
+    }
+  _ema_200_raw:
+    {
+      method: "ema",
+      inputs: ["close"],
+      params: { period: 200 },
+      is_intermediate: true,
+    }
+  _atr_14_raw:
+    {
+      method: "atr",
+      inputs: ["High", "Low", "close"],
+      params: { period: 14 },
+      is_intermediate: true,
+    }
+  _atr_20_raw:
+    {
+      method: "atr",
+      inputs: ["High", "Low", "close"],
+      params: { period: 20 },
+      is_intermediate: true,
+    }
+  _macd_raw:
+    {
+      method: "macd",
+      inputs: ["close"],
+      params: { fast: 12, slow: 26, signal: 9 },
+      is_intermediate: true,
+    }
+  _adx_raw:
+    {
+      method: "adx",
+      inputs: ["High", "Low", "close"],
+      params: { period: 14 },
+      is_intermediate: true,
+    }
+  _bbands_raw:
+    {
+      method: "bbands",
+      inputs: ["close"],
+      params: { period: 20, std_dev: 2.0 },
+      is_intermediate: true,
+    }
+  _kc_raw:
+    {
+      method: "kc",
+      inputs: ["High", "Low", "close"],
+      needs: ["_atr_20_raw"],
+      params: { ema_period: 20, atr_period: 20 },
+      is_intermediate: true,
+    }
+  _donchian_raw:
+    {
+      method: "donchian",
+      inputs: ["High", "Low"],
+      params: { period: 20 },
+      is_intermediate: true,
+    }
+  _log_ret_1_raw:
+    {
+      method: "log_return",
+      inputs: ["close"],
+      params: { period: 1 },
+      is_intermediate: true,
+    }
+  _vwap_5_raw:
+    {
+      method: "vwap",
+      inputs: ["close", "Volume"],
+      params: { period: 5 },
+      is_intermediate: true,
+    }
+  _psar_raw:
+    {
+      method: "psar",
+      inputs: ["High", "Low", "close"],
+      params: { af_initial: 0.02, af_max: 0.2 },
+      is_intermediate: true,
+    }
+
   # ---------------------------------------------------------------------------
   # Финальные признаки (f_*)
   # ---------------------------------------------------------------------------
   # EMA
-  f_ema_10: { method: 'identity', needs: ['_ema_10_raw'] }
-  f_ema_20: { method: 'identity', needs: ['_ema_20_raw'] }
-  f_ema_50: { method: 'identity', needs: ['_ema_50_raw'] }
-  f_ema_200: { method: 'identity', needs: ['_ema_200_raw'] }
+  f_ema_10: { method: "identity", needs: ["_ema_10_raw"] }
+  f_ema_20: { method: "identity", needs: ["_ema_20_raw"] }
+  f_ema_50: { method: "identity", needs: ["_ema_50_raw"] }
+  f_ema_200: { method: "identity", needs: ["_ema_200_raw"] }
 
   # Тренд
   f_close_minus_ema_20_over_atr14:
-    method: 'formula'
-    needs: ['_ema_20_raw', '_atr_14_raw']
+    method: "formula"
+    needs: ["_ema_20_raw", "_atr_14_raw"]
     formula: "(close - _ema_20_raw) / _atr_14_raw.replace(0, nan)"
   f_ema20_slope:
-    method: 'formula'
-    needs: ['_ema_20_raw']
+    method: "formula"
+    needs: ["_ema_20_raw"]
     formula: "_ema_20_raw.diff()"
   f_macd_12_26_9_hist:
-    method: 'formula'
-    needs: ['_macd_raw']
+    method: "formula"
+    needs: ["_macd_raw"]
     formula: "_macd_raw['MACDh_12_26_9']"
   f_di_diff_14:
-    method: 'formula'
-    needs: ['_adx_raw']
+    method: "formula"
+    needs: ["_adx_raw"]
     formula: "_adx_raw['DMP_14'] - _adx_raw['DMN_14']"
   f_adx_14:
-    method: 'formula'
-    needs: ['_adx_raw']
+    method: "formula"
+    needs: ["_adx_raw"]
     formula: "_adx_raw['ADX_14']"
 
   # Импульс
-  f_rsi_5: { method: 'rsi', inputs: ['close'], params: { period: 5 } }
-  f_rsi_14: { method: 'rsi', inputs: ['close'], params: { period: 14 } }
-  f_roc_5: { method: 'roc', inputs: ['close'], params: { period: 5 } }
-  
+  f_rsi_5: { method: "rsi", inputs: ["close"], params: { period: 5 } }
+  f_rsi_14: { method: "rsi", inputs: ["close"], params: { period: 14 } }
+  f_roc_5: { method: "roc", inputs: ["close"], params: { period: 5 } }
+
   # Волатильность и диапазон
   f_atr_14_pct:
-    method: 'formula'
-    needs: ['_atr_14_raw']
+    method: "formula"
+    needs: ["_atr_14_raw"]
     formula: "_atr_14_raw / close.replace(0, nan)"
   f_return_std_20:
-    method: 'formula'
-    needs: ['_log_ret_1_raw']
+    method: "formula"
+    needs: ["_log_ret_1_raw"]
     formula: "_log_ret_1_raw.rolling(window=20).std()"
   f_range_over_atr:
-    method: 'formula'
-    inputs: ['High', 'Low']
-    needs: ['_atr_14_raw']
+    method: "formula"
+    inputs: ["High", "Low"]
+    needs: ["_atr_14_raw"]
     formula: "(High - Low) / _atr_14_raw.replace(0, nan)"
   f_donchian_pos_20:
-    method: 'formula'
-    needs: ['_donchian_raw']
+    method: "formula"
+    needs: ["_donchian_raw"]
     formula: "(close - _donchian_raw['DCL_20_20']) / (_donchian_raw['DCU_20_20'] - _donchian_raw['DCL_20_20']).replace(0, nan)"
   f_keltner_pos_20:
-    method: 'formula'
-    needs: ['_kc_raw']
+    method: "formula"
+    needs: ["_kc_raw"]
     formula: "(close - _kc_raw.iloc[:, 1]) / (_kc_raw.iloc[:, 2] - _kc_raw.iloc[:, 0]).replace(0, nan)"
   f_percentB_20:
-    method: 'formula'
-    needs: ['_bbands_raw']
+    method: "formula"
+    needs: ["_bbands_raw"]
     formula: "(_bbands_raw['BBP_20_2.0'] / 100)" # pandas-ta возвращает в %, нам нужно 0-1
   f_bandwidth_20:
-    method: 'formula'
-    needs: ['_bbands_raw']
+    method: "formula"
+    needs: ["_bbands_raw"]
     formula: "(_bbands_raw['BBB_20_2.0'] / 100)" # pandas-ta возвращает в %, нам нужно 0-1
 
   # Доходности и статистика
-  f_ret_1: { method: 'log_return', inputs: ['close'], params: { period: 1 } }
-  f_ret_6: { method: 'log_return', inputs: ['close'], params: { period: 6 } }
-  f_ret_12: { method: 'log_return', inputs: ['close'], params: { period: 12 } }
-  f_ret_24: { method: 'log_return', inputs: ['close'], params: { period: 24 } }
+  f_ret_1: { method: "log_return", inputs: ["close"], params: { period: 1 } }
+  f_ret_6: { method: "log_return", inputs: ["close"], params: { period: 6 } }
+  f_ret_12: { method: "log_return", inputs: ["close"], params: { period: 12 } }
+  f_ret_24: { method: "log_return", inputs: ["close"], params: { period: 24 } }
   f_ret_1_z20:
-    method: 'formula'
-    needs: ['f_ret_1']
+    method: "formula"
+    needs: ["f_ret_1"]
     formula: "(f_ret_1 - f_ret_1.rolling(window=20).mean()) / f_ret_1.rolling(window=20).std().replace(0, nan)"
   f_rolling_mean_ret_5:
-    method: 'formula'
-    needs: ['f_ret_1']
+    method: "formula"
+    needs: ["f_ret_1"]
     formula: "f_ret_1.rolling(window=5).mean()"
   f_rolling_std_ret_5:
-    method: 'formula'
-    needs: ['f_ret_1']
+    method: "formula"
+    needs: ["f_ret_1"]
     formula: "f_ret_1.rolling(window=5).std()"
-  f_zscore_close_50: { method: 'zscore', inputs: ['close'], params: { window: 50 } }
+  f_zscore_close_50:
+    { method: "zscore", inputs: ["close"], params: { window: 50 } }
 
   # Прочие
   f_vwap_dev_over_atr14:
-    method: 'formula'
-    needs: ['_vwap_5_raw', '_atr_14_raw']
+    method: "formula"
+    needs: ["_vwap_5_raw", "_atr_14_raw"]
     formula: "(close - _vwap_5_raw) / _atr_14_raw.replace(0, nan)"
   f_psar_trend:
-    method: 'formula'
-    needs: ['_psar_raw']
+    method: "formula"
+    needs: ["_psar_raw"]
     formula: "(close > _psar_raw).astype('Int8')"
-  
+
   # -------------------------------------------
   # Режимы (regimes)
   # -------------------------------------------
   f_regime_trend_adx14:
-    method: 'threshold_flag'
-    inputs: ['f_adx_14']
+    method: "threshold_flag"
+    inputs: ["f_adx_14"]
     params: { threshold: 25.0, strictly_greater: true }
   f_regime_bull_ema200:
-    method: 'formula'
-    needs: ['_ema_200_raw']
+    method: "formula"
+    needs: ["_ema_200_raw"]
     formula: "(close > _ema_200_raw).astype('Int8')"
   f_regime_highvol_atr14:
-    method: 'quantile_flag'
-    inputs: ['f_atr_14_pct']
+    method: "quantile_flag"
+    inputs: ["f_atr_14_pct"]
     params: { q: 0.8, rolling_window: 1000, use_past_only: true }
 
   # -------------------------------------------
   # Сжатие волатильности (volatility squeeze)
   # -------------------------------------------
   f_bb_squeeze_20:
-    method: 'formula'
-    needs: ['f_bandwidth_20', 'f_atr_14_pct']
+    method: "formula"
+    needs: ["f_bandwidth_20", "f_atr_14_pct"]
     formula: "f_bandwidth_20 / f_atr_14_pct.replace(0, nan)"
   f_stdret20_over_atr14:
-    method: 'formula'
-    needs: ['f_return_std_20', 'f_atr_14_pct']
+    method: "formula"
+    needs: ["f_return_std_20", "f_atr_14_pct"]
     formula: "f_return_std_20 / f_atr_14_pct.replace(0, nan)"
 
   # -------------------------------------------
   # Форма распределения (shape stats)
   # -------------------------------------------
   f_rolling_skew_ret_20:
-    method: 'rolling_skew'
-    inputs: ['f_ret_1']
+    method: "rolling_skew"
+    inputs: ["f_ret_1"]
     params: { window: 20, bias: false }
   f_rolling_kurt_ret_20:
-    method: 'rolling_kurtosis'
-    inputs: ['f_ret_1']
+    method: "rolling_kurtosis"
+    inputs: ["f_ret_1"]
     params: { window: 20, fisher: true, bias: false }
   f_autocorr_ret1_lag1:
-    method: 'autocorr'
-    inputs: ['f_ret_1']
+    method: "autocorr"
+    inputs: ["f_ret_1"]
     params: { lag: 1, window: 50 }
   f_autocorr_ret1_lag2:
-    method: 'autocorr'
-    inputs: ['f_ret_1']
+    method: "autocorr"
+    inputs: ["f_ret_1"]
     params: { lag: 2, window: 50 }
   f_autocorr_ret1_lag3:
-    method: 'autocorr'
-    inputs: ['f_ret_1']
+    method: "autocorr"
+    inputs: ["f_ret_1"]
     params: { lag: 3, window: 50 }
   f_autocorr_ret1_lag4:
-    method: 'autocorr'
-    inputs: ['f_ret_1']
+    method: "autocorr"
+    inputs: ["f_ret_1"]
     params: { lag: 4, window: 50 }
   f_autocorr_ret1_lag5:
-    method: 'autocorr'
-    inputs: ['f_ret_1']
+    method: "autocorr"
+    inputs: ["f_ret_1"]
     params: { lag: 5, window: 50 }
 
   # -------------------------------------------
   # Давление к пробою (breakout pressure)
   # -------------------------------------------
   f_donchian_dist_upper_20_over_atr14:
-    method: 'formula'
-    needs: ['_donchian_raw', '_atr_14_raw']
+    method: "formula"
+    needs: ["_donchian_raw", "_atr_14_raw"]
     formula: "(_donchian_raw['DCU_20_20'] - close) / _atr_14_raw.replace(0, nan)"
   f_donchian_dist_lower_20_over_atr14:
-    method: 'formula'
-    needs: ['_donchian_raw', '_atr_14_raw']
+    method: "formula"
+    needs: ["_donchian_raw", "_atr_14_raw"]
     formula: "(close - _donchian_raw['DCL_20_20']) / _atr_14_raw.replace(0, nan)"
   f_bars_since_upper_break_20:
-    method: 'bars_since_donchian_break'
-    inputs: ['close']
-    needs: ['_donchian_raw']
-    params: { which: 'upper' }
+    method: "bars_since_donchian_break"
+    inputs: ["close"]
+    needs: ["_donchian_raw"]
+    params: { which: "upper" }
   f_bars_since_lower_break_20:
-    method: 'bars_since_donchian_break'
-    inputs: ['close']
-    needs: ['_donchian_raw']
-    params: { which: 'lower' }
+    method: "bars_since_donchian_break"
+    inputs: ["close"]
+    needs: ["_donchian_raw"]
+    params: { which: "lower" }
 
   # -------------------------------------------
   # Сессии (sessions)
   # -------------------------------------------
-  f_sess_london_open: { method: 'session_flag_tz', params: { tz: 'Europe/London', start_hour_local: 8, end_hour_local: 16 } }
-  f_sess_ny_open:     { method: 'session_flag_tz', params: { tz: 'America/New_York', start_hour_local: 8, end_hour_local: 17 } }
+  f_sess_london_open:
+    {
+      method: "session_flag_tz",
+      params: { tz: "Europe/London", start_hour_local: 8, end_hour_local: 16 },
+    }
+  f_sess_ny_open:
+    {
+      method: "session_flag_tz",
+      params:
+        { tz: "America/New_York", start_hour_local: 8, end_hour_local: 17 },
+    }
   f_sess_overlap:
-    method: 'formula'
-    needs: ['f_sess_london_open', 'f_sess_ny_open']
+    method: "formula"
+    needs: ["f_sess_london_open", "f_sess_ny_open"]
     formula: "((f_sess_london_open == 1) & (f_sess_ny_open == 1)).astype('Int8')"
 
   # -------------------------------------------
   # Календарные
   # -------------------------------------------
-  f_hour_of_day_sin: { method: 'hour_sin' }
-  f_hour_of_day_cos: { method: 'hour_cos' }
-  f_dow: { method: 'day_of_week' }
+  f_hour_of_day_sin: { method: "hour_sin" }
+  f_hour_of_day_cos: { method: "hour_cos" }
+  f_dow: { method: "day_of_week" }
 
   # -------------------------------------------
   # Целевая переменная
   # -------------------------------------------
-  y_bs: { method: 'binary_target', inputs: ['close'], params: { horizon: 5 } }
-  y_bs_atr: { method: 'binary_target', inputs: ['close', '_atr_14_raw'], params: { horizon: 5, k: 0.5 } }
+  y_bs: { method: "binary_target", inputs: ["close"], params: { horizon: 5 } }
+  y_buy_else_atr:
+    {
+      method: "binary_target",
+      inputs: ["close", "_atr_14_raw"],
+      params: { horizon: 5, k: 0.5, label_name: "y_buy_else_atr" },
+    }
 
 # =============================================================================
 # 4. МЕТАДАННЫЕ И ОПИСАНИЯ
@@ -521,10 +622,10 @@ metadata:
   version: "4.0" # Обновленная версия
   created_date: "2025-10-16"
   description: "Конфигурация для создания технических и статистических признаков. Версия 4.0: Оптимизированная структура настроек."
-  
+
   # Ожидаемые колонки входных данных (стандартизированные имена)
-  expected_input_columns: ['Time', 'Open', 'High', 'Low', 'Close', 'Volume']
-  
+  expected_input_columns: ["Time", "Open", "High", "Low", "Close", "Volume"]
+
   # Примерное количество создаваемых признаков (справочное)
   estimated_features:
     technical_indicators: 22

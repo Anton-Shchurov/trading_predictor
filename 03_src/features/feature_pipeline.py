@@ -197,7 +197,7 @@ class FeatureEngineeringPipeline:
         
         base_keep = set()
         if keep_close: base_keep.add('close')
-        target_name = 'y_bs'
+        target_name = ps.get('target_column', 'y_bs')
         if keep_target: base_keep.add(target_name)
         for col in ps.get('base_keep_columns', []) or []:
              if isinstance(col, str): base_keep.add(col)
@@ -361,12 +361,23 @@ class FeatureEngineeringPipeline:
                 formula = defn['formula']
                 local_scope = {'nan': np.nan, 'NA': pd.NA}
                 eval_locals = {**results_cache, **local_scope}
-                try:
-                    result = pd.eval(formula, engine='python', local_dict=eval_locals)
-                except Exception as exc:
-                    self.logger.warning(f"pd.eval failed for {name}: {exc}. Fallback to eval.")
+                
+                # Check for patterns known to be unsupported by pd.eval (engine='python')
+                # .replace, .astype, .iloc, .rolling, .diff often cause "BinOp" or "slice" errors
+                complex_patterns = ['.replace', '.astype', '.iloc', '.rolling', '.diff']
+                use_python_eval = any(p in formula for p in complex_patterns)
+
+                if use_python_eval:
                     safe_globals = {'np': np, 'pd': pd, 'nan': np.nan, 'NA': pd.NA}
                     result = eval(formula, safe_globals, eval_locals)
+                else:
+                    try:
+                        result = pd.eval(formula, engine='python', local_dict=eval_locals)
+                    except Exception as exc:
+                        # Log as debug to not spam user, but keep fallback
+                        self.logger.debug(f"pd.eval failed for {name}: {exc}. Fallback to eval.")
+                        safe_globals = {'np': np, 'pd': pd, 'nan': np.nan, 'NA': pd.NA}
+                        result = eval(formula, safe_globals, eval_locals)
 
             elif method_name in self._method_registry:
                 func = self._method_registry[method_name]
@@ -482,16 +493,26 @@ class FeatureEngineeringPipeline:
             df_with_features = self._execute_declarative_pipeline(df)
 
             # Fallback target calc
-            if 'y_bs' not in df_with_features.columns:
+            target_name = (self.config.get('pipeline_settings', {}) or {}).get('target_column', 'y_bs')
+            if target_name not in df_with_features.columns:
                 try:
-                    self.logger.warning("Target 'y_bs' missing. Computing fallback.")
+                    self.logger.warning(f"Target '{target_name}' missing. Computing fallback.")
                     col_close = df_with_features.get('close') if 'close' in df_with_features else df_with_features.get('Close')
                     if col_close is not None:
-                         y_params = ((self.config.get('feature_definitions', {}) or {}).get('y_bs', {}) or {}).get('params', {})
+                         y_params = ((self.config.get('feature_definitions', {}) or {}).get(target_name, {}) or {}).get('params', {})
                          horizon = int(y_params.get('horizon', 5))
-                         y_df = create_binary_labels(col_close, horizon=horizon)
+                         # Pass label_name explicitly if not in params, though it should be
+                         if 'label_name' not in y_params:
+                             y_params['label_name'] = target_name
+                             
+                         y_df = create_binary_labels(col_close, **y_params)
                          # join безопасно
-                         df_with_features = df_with_features.join(y_df[['y_bs']])
+                         if target_name in y_df.columns:
+                            df_with_features = df_with_features.join(y_df[[target_name]])
+                         else:
+                            # If create_binary_labels didn't use the correct name for some reason
+                             self.logger.warning(f"Created target has columns {y_df.columns}, expected {target_name}")
+                             df_with_features = df_with_features.join(y_df) # Try join all?
                 except Exception as err:
                     self.logger.error(f"Fallback target failed: {err}")
             

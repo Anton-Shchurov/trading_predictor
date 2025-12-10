@@ -23,6 +23,7 @@ def create_binary_labels(
     *,
     horizon: int = 5,
     k: float = 0.5,
+    label_name: str = "y_bs",
     return_debug: bool = False,
 ) -> pd.DataFrame:
     """
@@ -36,6 +37,7 @@ def create_binary_labels(
         atr: Серия ATR (опционально). Если None, используется просто знак приращения.
         horizon: Горизонт прогноза H (в барах)
         k: Коэффициент для ATR порога (используется если atr задан)
+        label_name: Имя колонки для целевой переменной (default: "y_bs")
         return_debug: Вернуть ли отладочную колонку f_ret_h
     
     Returns:
@@ -73,7 +75,7 @@ def create_binary_labels(
         # Сравнение
         # 1: Доходность выше порога (положительный выброс)
         # 0: Доходность ниже порога (шум или движение вниз/малое движение вверх)
-        # NOTE: В задаче сказано "y_bs_atr = 1, если ret_5 >= threshold, y_bs_atr = 0 иначе"
+        # NOTE: В задаче сказано "y_buy_else_atr = 1, если ret_5 >= threshold, y_buy_else_atr = 0 иначе"
         
         mask_pos = (ret_h_rel >= threshold)
         
@@ -87,7 +89,7 @@ def create_binary_labels(
         y.loc[valid_mask & (ret_h_abs <= 0)] = 0
 
     out = pd.DataFrame(index=close.index)
-    out["y_bs"] = y
+    out[label_name] = y
 
     if return_debug:
         out["f_ret_h_rel"] = ret_h_rel.astype('float32')
