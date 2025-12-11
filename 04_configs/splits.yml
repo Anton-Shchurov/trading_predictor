@@ -20,7 +20,7 @@ time_series_cv:
   gap: 5
 
 artifacts:
-  save_cv_indices: true
-  save_split_dates: true
+  save_cv_indices: false
+  save_split_dates: false
 
 

@@ -6,7 +6,7 @@ task: binary
 # ===========================
 pipeline_settings:
   run_hyperparameter_tuning: false    # true = HP tuning, false = standard training
-  use_class_weights: false            # Disabled by default
+  use_class_weights: true              # Enabled for Experiment 20
 data:
   features_path: "01_data/processed/eurusd_fset-15_features.parquet"
   target_column: "y_buy_else_atr"     # Dynamic target column name
@@ -37,7 +37,7 @@ metrics:
   - roc_auc
 
 experiment:
-  current_id: "exp_0019"
+  current_id: "exp_0020"
 
 common:
   random_state: 42
@@ -89,7 +89,7 @@ models:
       verbose: false
 
   lightgbm:
-    enabled: false
+    enabled: true
     use_best_params: false
 
     default_params:
@@ -123,7 +123,7 @@ models:
       verbose: -1
 
   catboost:
-    enabled: false
+    enabled: true
     use_best_params: false
 
     default_params:

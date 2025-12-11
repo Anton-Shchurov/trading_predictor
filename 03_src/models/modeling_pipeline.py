@@ -183,6 +183,11 @@ def _save_cv_indices(folds: List[Tuple[np.ndarray, np.ndarray]], path: Path, ind
 def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarray] = None) -> Dict[str, float]:
     from sklearn.metrics import precision_score, recall_score
 
+    # Calculate confusion matrix components for Simple PnL
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    simple_pnl = float(tp - fp)  # Reward=Risk=1R
+
     res = {
         # Primary Target Metrics (Sniper Strategy)
         "precision_class_1": precision_score(y_true, y_pred, pos_label=1, zero_division=0),
@@ -197,6 +202,9 @@ def _evaluate(y_true: np.ndarray, y_pred: np.ndarray, y_proba: Optional[np.ndarr
         # Standard Metrics
         "balanced_accuracy": balanced_accuracy_score(y_true, y_pred),
         "accuracy": accuracy_score(y_true, y_pred),
+        
+        # Financial Metric
+        "simple_pnl": simple_pnl,
     }
     if y_proba is not None:
         try:
@@ -356,7 +364,51 @@ def _confusion_and_report(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, o
     labels = [0, 1]
     cm = confusion_matrix(y_true, y_pred, labels=labels)
     report = classification_report(y_true, y_pred, digits=4, output_dict=True)
-    return {"confusion_matrix": cm.tolist(), "classification_report": report}
+    
+    # Add simple_pnl to report
+    tn, fp, fn, tp = cm.ravel()
+    simple_pnl = float(tp - fp)
+    
+    return {
+        "confusion_matrix": cm.tolist(), 
+        "classification_report": report,
+        "simple_pnl": simple_pnl,
+    }
+
+
+def _find_best_threshold(
+    y_true: np.ndarray, 
+    y_proba: np.ndarray, 
+    thresholds: Optional[np.ndarray] = None
+) -> Tuple[float, float]:
+    """Find optimal threshold that maximizes F1 score for class 1.
+    
+    Args:
+        y_true: Ground truth labels
+        y_proba: Predicted probabilities for class 1
+        thresholds: Array of thresholds to try. Default: np.arange(0.25, 0.51, 0.01)
+        
+    Returns:
+        Tuple of (best_threshold, best_f1_score)
+    """
+    if thresholds is None:
+        thresholds = np.arange(0.25, 0.51, 0.01)
+    
+    # Ensure y_proba is 1D (probability of class 1)
+    if isinstance(y_proba, np.ndarray) and y_proba.ndim == 2:
+        y_proba = y_proba[:, 1]
+    
+    best_threshold = 0.5
+    best_f1 = 0.0
+    
+    for thr in thresholds:
+        y_pred = (y_proba >= thr).astype(int)
+        f1 = f1_score(y_true, y_pred, pos_label=1, zero_division=0)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_threshold = thr
+    
+    return float(best_threshold), float(best_f1)
 
 
 def run_modeling_pipeline(
@@ -449,7 +501,13 @@ def run_modeling_pipeline(
     results: Dict[str, Dict] = {}
 
     for model_name in models:
+        print(f"\nProcessing Model: {model_name}...")
+        if pipeline_settings.get("use_class_weights", False):
+            print(f"  -> Class 1 Weight: {class_weights.get(1, 1.0):.2f}")
+        
         fold_metrics: List[Dict[str, float]] = []
+        fold_thresholds: List[float] = []
+        
         for fold_id, (tr_idx, va_idx) in enumerate(folds, start=1):
             X_tr, y_tr = X_trval.iloc[tr_idx], y_trval.iloc[tr_idx]
             X_va, y_va = X_trval.iloc[va_idx], y_trval.iloc[va_idx]
@@ -473,11 +531,38 @@ def run_modeling_pipeline(
                 "fit": m_config.get("fit", {})
             }
 
-            clf, metrics = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights, model_run_cfg, common_cfg)
+            clf, _ = _fit_and_eval_model(model_name, X_tr, y_tr, X_va, y_va, class_weights, model_run_cfg, common_cfg)
+            
+            # Get probabilities for threshold optimization
+            if model_name == "catboost":
+                _, y_proba_va = _predict_catboost(clf, X_va)
+            elif model_name == "xgboost":
+                _, y_proba_va = _predict_xgboost(clf, X_va)
+            else:
+                y_proba_va = clf.predict_proba(X_va)
+            
+            # Find optimal threshold
+            best_thr, best_f1 = _find_best_threshold(y_va.values, y_proba_va)
+            fold_thresholds.append(best_thr)
+            
+            # Re-evaluate with optimal threshold
+            if isinstance(y_proba_va, np.ndarray) and y_proba_va.ndim == 2:
+                y_proba_1 = y_proba_va[:, 1]
+            else:
+                y_proba_1 = y_proba_va
+            y_pred_opt = (y_proba_1 >= best_thr).astype(int)
+            metrics = _evaluate(y_va.values, y_pred_opt, y_proba_va)
+            metrics["optimal_threshold"] = best_thr
             fold_metrics.append(metrics)
+            
+            print(f"  -> Fold {fold_id}: Thr={best_thr:.2f} | F1={metrics.get('f1_class_1', 0):.4f} | PnL={metrics.get('simple_pnl', 0):+.1f}")
 
         # усреднение метрик по фолдам
         avg_metrics = {k: float(np.nanmean([m.get(k, np.nan) for m in fold_metrics])) for k in fold_metrics[0].keys()}
+        avg_threshold = float(np.mean(fold_thresholds))
+        avg_metrics["avg_threshold"] = avg_threshold
+        
+        print(f"  -> CV Avg: Thr={avg_threshold:.2f} | F1={avg_metrics.get('f1_class_1', 0):.4f} | PnL={avg_metrics.get('simple_pnl', 0):+.1f}")
 
         # финальное дообучение на train+valid и оценка на test
         # Re-resolve params for final fit (same logic)
@@ -496,15 +581,23 @@ def run_modeling_pipeline(
         }
         
         clf_final, _ = _fit_and_eval_model(model_name, X_trval, y_trval, X_valid, y_valid, class_weights, model_run_cfg, common_cfg)
-        # оценим на тесте
+        # оценим на тесте с использованием среднего порога из CV
         if model_name == "catboost":
-            y_pred_test, y_proba_test = _predict_catboost(clf_final, X_test)
+            _, y_proba_test = _predict_catboost(clf_final, X_test)
         elif model_name == "xgboost":
-            y_pred_test, y_proba_test = _predict_xgboost(clf_final, X_test)
+            _, y_proba_test = _predict_xgboost(clf_final, X_test)
         else:
             y_proba_test = clf_final.predict_proba(X_test)
-            y_pred_test = clf_final.predict(X_test)
+        
+        # Apply average threshold from CV
+        if isinstance(y_proba_test, np.ndarray) and y_proba_test.ndim == 2:
+            y_proba_test_1 = y_proba_test[:, 1]
+        else:
+            y_proba_test_1 = y_proba_test
+        y_pred_test = (y_proba_test_1 >= avg_threshold).astype(int)
+        
         test_metrics = _evaluate(y_test.values, y_pred_test, y_proba_test)
+        test_metrics["selected_threshold"] = avg_threshold
         test_details = _confusion_and_report(y_test.values, y_pred_test)
 
         # сохранение модели
