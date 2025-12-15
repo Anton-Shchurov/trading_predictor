@@ -37,7 +37,7 @@ metrics:
   - roc_auc
 
 experiment:
-  current_id: "exp_0020"
+  current_id: "exp_0021"
 
 common:
   random_state: 42
@@ -65,7 +65,7 @@ models:
 
     hp_tuning_params:    # Search space for Optuna
       learning_rate: loguniform(1e-3, 0.3)
-      n_estimators: int(10, 20)
+      n_estimators: int(100, 5000)
       max_depth: int(3, 10)
       min_child_weight: int(1, 10)
       subsample: uniform(0.5, 1.0)
