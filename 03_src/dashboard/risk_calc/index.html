@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading EV Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+    <script>
+        // Регистрация плагина DataLabels для всех графиков
+        Chart.register(ChartDataLabels);
+
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0f172a',
+                        darkCard: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+            margin-bottom: 0.5rem;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            background: #3b82f6;
+            cursor: pointer;
+            margin-top: -7px;
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.5);
+            transition: transform 0.1s;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #475569;
+            border-radius: 2px;
+        }
+        input[type=range].emerald-slider::-webkit-slider-thumb {
+            background: #10b981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+        }
+        input[type=range].purple-slider::-webkit-slider-thumb {
+            background: #a855f7;
+            box-shadow: 0 0 10px rgba(168, 85, 247, 0.5);
+        }
+        input[type=range]:focus {
+            outline: none;
+        }
+        
+        /* Modern number inputs removing spinner */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+
+        /* Custom thin scrollbar for sidebar */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5); 
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #334155; 
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #475569; 
+        }
+    </style>
+</head>
+<body class="bg-darkBg text-slate-200 h-screen w-full flex overflow-hidden font-sans">
+
+    <!-- Sidebar: Settings (Left) -->
+    <aside class="w-[320px] md:w-[380px] flex-shrink-0 flex flex-col h-full bg-darkCard border-r border-slate-700/50 overflow-y-auto p-4 sm:p-6 custom-scrollbar z-10 shadow-2xl">
+        <h2 class="text-xl font-bold mb-6 text-white flex items-center shrink-0">
+            <svg class="w-6 h-6 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+            Система
+        </h2>
+
+        <div class="space-y-4 shrink-0">
+            <!-- Win Rate -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Win Rate / Точность (%)</label>
+                    <input type="number" id="winRateNum" min="0" max="100" step="1" value="55" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <input type="range" id="winRate" min="0" max="100" step="1" value="55">
+            </div>
+
+            <!-- Risk -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Риск на сделку (%)</label>
+                    <input type="number" id="riskNum" min="0.1" max="10" step="0.1" value="1.0" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <input type="range" id="risk" min="0.1" max="10" step="0.1" value="1.0">
+            </div>
+
+            <!-- R:R -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Reward-to-Risk (R:R)</label>
+                    <input type="number" id="rrNum" min="0.1" max="10" step="0.1" value="1.5" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <input type="range" id="rr" min="0.1" max="10" step="0.1" value="1.5">
+            </div>
+
+            <!-- Costs -->
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Издержки (% от риска)</label>
+                    <input type="number" id="costsNum" min="0" max="100" step="1" value="10" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <input type="range" id="costs" min="0" max="100" step="1" value="10">
+            </div>
+        </div>
+
+        <!-- Capital Settings -->
+        <h3 class="text-xl font-bold text-white flex items-center mt-6 mb-4 pt-6 border-t border-slate-700/50 shrink-0">
+            <svg class="w-6 h-6 mr-2 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Капитал
+        </h3>
+        
+        <div class="space-y-4 shrink-0">
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Стартовый ($)</label>
+                    <input type="number" id="startCapNum" min="100" max="100000" step="100" value="10000" class="w-24 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors">
+                </div>
+                <input type="range" id="startCap" min="100" max="100000" step="100" value="10000" class="emerald-slider">
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Сделок в месяц</label>
+                    <input type="number" id="tradesPerMonthNum" min="1" max="200" step="1" value="40" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-emerald-500 transition-colors">
+                </div>
+                <input type="range" id="tradesPerMonth" min="1" max="200" step="1" value="40" class="emerald-slider">
+            </div>
+        </div>
+
+        <!-- Monte Carlo Settings -->
+        <h3 class="text-xl font-bold text-white flex items-center mt-6 mb-4 pt-6 border-t border-slate-700/50 shrink-0">
+            <svg class="w-6 h-6 mr-2 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+            Монте-Карло
+        </h3>
+        
+        <div class="space-y-4 shrink-0 pb-4">
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">N Trades</label>
+                    <input type="number" id="nTradesNum" min="10" max="1000" step="1" value="100" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-purple-500 transition-colors">
+                </div>
+                <input type="range" id="nTrades" min="10" max="1000" step="1" value="100" class="purple-slider">
+            </div>
+
+            <div>
+                <div class="flex justify-between items-center mb-1">
+                    <label class="text-xs font-semibold text-slate-400">Drawdown Limit (%)</label>
+                    <input type="number" id="ddLimitNum" min="1" max="50" step="1" value="20" class="w-20 bg-slate-900 border border-slate-600 rounded-md px-2 py-1 text-right text-sm font-bold text-white focus:outline-none focus:border-purple-500 transition-colors">
+                </div>
+                <input type="range" id="ddLimit" min="1" max="50" step="1" value="20" class="purple-slider">
+            </div>
+
+            <div class="flex justify-between items-center pt-2">
+                <label class="text-xs font-semibold text-slate-400">Симуляции</label>
+                <select id="simCount" class="w-28 bg-slate-900 border border-slate-600 rounded-md px-2 py-1.5 text-right text-sm font-bold text-white focus:outline-none focus:border-purple-500 cursor-pointer">
+                    <option value="1000">1,000</option>
+                    <option value="5000">5,000</option>
+                    <option value="10000" selected>10,000</option>
+                    <option value="50000">50,000</option>
+                    <option value="100000">100,000</option>
+                </select>
+            </div>
+
+            <button id="runMcBtn" class="mt-4 w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 px-4 rounded-xl transition-colors shadow-[0_0_15px_rgba(168,85,247,0.4)] hover:shadow-[0_0_25px_rgba(168,85,247,0.6)] flex items-center justify-center cursor-pointer">
+                Запустить (Run)
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content: Data & Graphs (Right) -->
+    <main class="flex-1 flex flex-col h-full bg-[#0a0f1d] overflow-hidden p-4 sm:p-6 min-w-0">
+        
+        <!-- Top KPI Row -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5 shrink-0">
+            <!-- Net EV -->
+            <div class="bg-darkCard p-4 rounded-2xl border border-slate-700/50 flex flex-col justify-center items-center text-center shadow-lg">
+                <span class="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Net Expected Value</span>
+                <div class="flex items-baseline justify-center w-full truncate">
+                    <span id="netEvOut" class="text-3xl sm:text-4xl font-black text-emerald-400 tracking-tight">0.28</span>
+                    <span class="text-lg text-slate-500 ml-1 font-bold">%</span>
+                </div>
+            </div>
+
+            <!-- Capital 1 Year -->
+            <div class="bg-darkCard p-4 rounded-2xl border border-slate-700/50 flex flex-col justify-center items-center text-center shadow-[0_0_15px_rgba(16,185,129,0.05)] ring-1 ring-emerald-500/20">
+                <span class="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Капитал (12 Мес)</span>
+                <span id="capitalOut" class="text-2xl sm:text-3xl font-black text-emerald-400 truncate w-full">$...</span>
+            </div>
+
+            <!-- Risk of Ruin -->
+            <div class="bg-darkCard p-4 rounded-2xl border border-slate-700/50 flex flex-col justify-center items-center text-center shadow-[0_0_15px_rgba(168,85,247,0.05)] ring-1 ring-purple-500/20">
+                <span class="text-[10px] sm:text-xs text-slate-400 font-bold uppercase tracking-widest mb-1">Риск Разорения</span>
+                <span id="riskOfRuinOut" class="text-lg sm:text-2xl font-bold text-slate-500 truncate w-full">Запустите...</span>
+            </div>
+
+            <!-- Minor Stats -->
+            <div class="bg-darkCard p-4 rounded-2xl border border-slate-700/50 flex flex-col justify-evenly">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400 font-medium tracking-wide">Loss Rate:</span>
+                    <span id="lossRateOut" class="text-sm font-bold text-slate-200">45.0%</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400 font-medium tracking-wide">Gross EV:</span>
+                    <span id="grossEvOut" class="text-sm font-bold text-slate-200">0.38%</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-xs text-slate-400 font-medium tracking-wide">Издержки:</span>
+                    <span id="costsOut" class="text-sm font-bold text-rose-400/90">-0.10%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Graphs Vertical Fill Area -->
+        <div class="flex-1 flex flex-col gap-5 min-h-0">
+            
+            <!-- Financial Projection Chart (Top) -->
+            <div class="flex-1 bg-darkCard rounded-2xl border border-slate-700/50 flex flex-col p-4 sm:p-5 relative min-h-0 shadow-lg">
+                <h2 class="text-sm sm:text-base font-bold text-white flex items-center mb-2 shrink-0">
+                    <svg class="w-4 h-4 mr-2 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                    Финансовый прогноз на 12 месяцев (Баланс)
+                </h2>
+                <!-- Container must be flex-1 relative min-h-0 for canvas auto scaling -->
+                <div class="flex-1 relative w-full h-full min-h-0 pt-2">
+                    <canvas id="projChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Monte Carlo Chart (Bottom) -->
+            <div class="flex-1 bg-darkCard rounded-2xl border border-slate-700/50 flex flex-col p-4 sm:p-5 relative min-h-0 shadow-lg">
+                <h2 class="text-sm sm:text-base font-bold text-white flex items-center justify-between mb-2 shrink-0">
+                    <span class="flex items-center">
+                        <svg class="w-4 h-4 mr-2 text-pink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"></path></svg>
+                        Симуляция кривых капитала (Equity Curves)
+                    </span>
+                    <span class="text-[10px] sm:text-xs font-normal text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700 hidden sm:inline-block">50 случайных сэмплов</span>
+                </h2>
+                <!-- Container must be flex-1 relative min-h-0 for canvas auto scaling -->
+                <div class="flex-1 relative w-full h-full min-h-0">
+                    <canvas id="mcChart"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <script>
+        // DOM Elements for EV Inputs
+        const winRateRange = document.getElementById('winRate');
+        const winRateNum = document.getElementById('winRateNum');
+        const riskRange = document.getElementById('risk');
+        const riskNum = document.getElementById('riskNum');
+        const rrRange = document.getElementById('rr');
+        const rrNum = document.getElementById('rrNum');
+        const costsRange = document.getElementById('costs');
+        const costsNum = document.getElementById('costsNum');
+
+        // DOM Elements for Capital Inputs
+        const startCapRange = document.getElementById('startCap');
+        const startCapNum = document.getElementById('startCapNum');
+        const tradesPerMonthRange = document.getElementById('tradesPerMonth');
+        const tradesPerMonthNum = document.getElementById('tradesPerMonthNum');
+
+        // DOM Elements for EV Outputs
+        const lossRateOut = document.getElementById('lossRateOut');
+        const grossEvOut = document.getElementById('grossEvOut');
+        const costsOut = document.getElementById('costsOut');
+        const netEvOut = document.getElementById('netEvOut');
+        const capitalOut = document.getElementById('capitalOut');
+
+        // DOM Elements for MC Inputs
+        const nTradesRange = document.getElementById('nTrades');
+        const nTradesNum = document.getElementById('nTradesNum');
+        const ddLimitRange = document.getElementById('ddLimit');
+        const ddLimitNum = document.getElementById('ddLimitNum');
+        const simCountSel = document.getElementById('simCount');
+        const runMcBtn = document.getElementById('runMcBtn');
+        const riskOfRuinOut = document.getElementById('riskOfRuinOut');
+
+        // Chart instances
+        let projChartInstance = null;
+        let mcChartInstance = null;
+
+        // Sync Function helper
+        function sync(source, target, callCalculate = false) {
+            target.value = source.value;
+            if (callCalculate) calculateEv();
+        }
+
+        // Attach Event Listeners for EV and Capital (auto updates)
+        [
+            [winRateRange, winRateNum],
+            [riskRange, riskNum],
+            [rrRange, rrNum],
+            [costsRange, costsNum],
+            [startCapRange, startCapNum],
+            [tradesPerMonthRange, tradesPerMonthNum]
+        ].forEach(([range, num]) => {
+            range.addEventListener('input', () => sync(range, num, true));
+            num.addEventListener('input', () => sync(num, range, true));
+        });
+
+        // Attach Event Listeners for MC inputs (manual update sync only)
+        [
+            [nTradesRange, nTradesNum],
+            [ddLimitRange, ddLimitNum]
+        ].forEach(([range, num]) => {
+            range.addEventListener('input', () => sync(range, num, false));
+            num.addEventListener('input', () => sync(num, range, false));
+        });
+
+        // Base EV Logic (Updates dynamically)
+        function calculateEv() {
+            const winRate = parseFloat(winRateNum.value) || 0;
+            const risk = parseFloat(riskNum.value) || 0;
+            const rr = parseFloat(rrNum.value) || 0;
+            const costs = parseFloat(costsNum.value) || 0;
+            
+            const startCap = parseFloat(startCapNum.value) || 0;
+            const tradesPerMonth = parseInt(tradesPerMonthNum.value, 10) || 0;
+
+            const pWin = winRate / 100;
+            const pLoss = 1 - pWin;
+            const riskValue = risk;
+            const rewardValue = riskValue * rr;
+            const costValue = riskValue * (costs / 100);
+
+            const grossEv = (pWin * rewardValue) - (pLoss * riskValue);
+            const netEv = grossEv - costValue;
+
+            lossRateOut.textContent = (100 - winRate).toFixed(1) + '%';
+            
+            grossEvOut.textContent = (grossEv > 0 ? '+' : '') + grossEv.toFixed(3) + '%';
+            grossEvOut.className = grossEv > 0 
+                ? 'text-sm font-bold text-emerald-400' 
+                : (grossEv < 0 ? 'text-sm font-bold text-rose-500' : 'text-sm font-bold text-slate-400');
+            
+            costsOut.textContent = '-' + costValue.toFixed(3) + '%';
+            
+            const netEvText = (netEv > 0 ? '+' : '') + netEv.toFixed(3);
+            netEvOut.textContent = netEvText;
+
+            if (netEv > 0) {
+                netEvOut.classList.remove('text-rose-500', 'text-slate-400');
+                netEvOut.classList.add('text-emerald-400');
+            } else if (netEv < 0) {
+                netEvOut.classList.remove('text-emerald-400', 'text-slate-400');
+                netEvOut.classList.add('text-rose-500');
+            } else {
+                netEvOut.classList.remove('text-emerald-400', 'text-rose-500');
+                netEvOut.classList.add('text-slate-400');
+            }
+
+            // Financial Projection Logic (12 Months)
+            const evRatio = netEv / 100;
+            const monthlyMultiplier = Math.pow(1 + evRatio, tradesPerMonth);
+            
+            const projBalances = [];
+            let currCap = startCap;
+            
+            for (let i = 1; i <= 12; i++) {
+                currCap = currCap * monthlyMultiplier;
+                projBalances.push(currCap);
+            }
+
+            // Capital after 1 year UI update
+            capitalOut.textContent = '$' + Math.round(currCap).toLocaleString('en-US');
+            if (currCap > startCap) {
+                capitalOut.className = 'text-2xl sm:text-3xl font-black text-emerald-400 truncate w-full';
+            } else if (currCap < startCap) {
+                capitalOut.className = 'text-2xl sm:text-3xl font-black text-rose-500 truncate w-full';
+            } else {
+                capitalOut.className = 'text-2xl sm:text-3xl font-black text-slate-400 truncate w-full';
+            }
+
+            renderProjChart(projBalances, startCap);
+        }
+
+        function renderProjChart(balances, initialCapital) {
+            const ctx = document.getElementById('projChart').getContext('2d');
+            
+            if (projChartInstance) {
+                projChartInstance.destroy();
+            }
+
+            const xLabels = Array.from({length: 12}, (_, i) => `Месяц ${i+1}`);
+            
+            // Define colors based on profitability vs initial capital
+            const isNegative = balances[11] < initialCapital;
+            const barFillColor = isNegative ? 'rgba(244, 63, 94, 0.7)' : 'rgba(16, 185, 129, 0.7)';
+            const barBorderColor = isNegative ? '#e11d48' : '#059669';
+
+            projChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: xLabels,
+                    datasets: [{
+                        label: 'Баланс ($)',
+                        data: balances,
+                        backgroundColor: barFillColor,
+                        borderColor: barBorderColor,
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: {
+                        duration: 300 
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { 
+                            callbacks: {
+                                label: function(context) {
+                                    return '$' + Math.round(context.raw).toLocaleString('en-US');
+                                }
+                            }
+                        },
+                        // Plugin Configuration for Labels
+                        datalabels: {
+                            display: true,
+                            align: 'top',
+                            anchor: 'end',
+                            color: '#e2e8f0',
+                            font: {
+                                weight: 'bold',
+                                size: 10
+                            },
+                            formatter: function(value) {
+                                // Format K format for smaller screens or normal strings
+                                return window.innerWidth < 1024 && value >= 10000 
+                                       ? Math.round(value/1000) + 'k' 
+                                       : Math.round(value).toLocaleString('en-US');
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { 
+                                color: '#94a3b8',
+                                font: { size: window.innerWidth < 640 ? 9 : 11 }
+                            }
+                        },
+                        y: {
+                            title: { display: window.innerWidth >= 640, text: 'Капитал ($)', color: '#94a3b8' },
+                            grid: { color: 'rgba(71, 85, 105, 0.2)' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    },
+                    layout: {
+                        padding: {
+                            top: 20 // Space for datalabels
+                        }
+                    }
+                }
+            });
+        }
+
+        // Trigger initial EV calculate on load
+        calculateEv();
+
+        // Window resize re-render to handle datalabel formatting change
+        window.addEventListener('resize', () => {
+             calculateEv();
+        });
+
+        // -------------------------
+        // Monte Carlo Logic section
+        // -------------------------
+
+        // Web Worker blob script
+        const mcWorkerScript = `
+        self.onmessage = function(e) {
+            const { nTrades, ddLimit, simCount, pWin, rewardValue, riskValue, costValue } = e.data;
+            let ruinCount = 0;
+            const sampleCurves = [];
+            const NUMBER_OF_SAMPLES = 50;
+
+            for (let i = 0; i < simCount; i++) {
+                let equity = 100;
+                let peak = 100;
+                let isRuin = false;
+                
+                const isSample = i < NUMBER_OF_SAMPLES;
+                let curve = isSample ? [equity] : null;
+
+                for (let j = 0; j < nTrades; j++) {
+                    equity -= costValue;
+
+                    if (Math.random() < pWin) {
+                        equity += rewardValue;
+                        if (equity > peak) {
+                            peak = equity;
+                        }
+                    } else {
+                        equity -= riskValue;
+                    }
+
+                    if (isSample) {
+                        curve.push(equity);
+                    }
+
+                    if ((peak - equity) >= ddLimit) {
+                        isRuin = true;
+                        
+                        if (isSample) {
+                            while(curve.length <= nTrades) {
+                                curve.push(equity);
+                            }
+                        }
+                        break;
+                    }
+                }
+
+                if (isRuin) {
+                    ruinCount++;
+                }
+
+                if (isSample) {
+                    sampleCurves.push(curve);
+                }
+            }
+
+            postMessage({ ruinCount, sampleCurves });
+        };
+        `;
+        const blob = new Blob([mcWorkerScript], {type: 'application/javascript'});
+        const workerUrl = URL.createObjectURL(blob);
+
+        runMcBtn.addEventListener('click', () => {
+            runMcBtn.disabled = true;
+            runMcBtn.innerHTML = `
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Расчет...
+            `;
+            runMcBtn.classList.add('opacity-70', 'cursor-not-allowed');
+
+            const nTrades = parseInt(nTradesNum.value, 10);
+            const ddLimit = parseInt(ddLimitNum.value, 10);
+            const simCount = parseInt(simCountSel.value, 10);
+
+            const winRate = parseFloat(winRateNum.value) || 0;
+            const risk = parseFloat(riskNum.value) || 0;
+            const rr = parseFloat(rrNum.value) || 0;
+            const costs = parseFloat(costsNum.value) || 0;
+
+            const pWin = winRate / 100;
+            const riskValue = risk;
+            const rewardValue = riskValue * rr;
+            const costValue = riskValue * (costs / 100);
+
+            const worker = new Worker(workerUrl);
+            
+            worker.postMessage({
+                nTrades, ddLimit, simCount, pWin, rewardValue, riskValue, costValue
+            });
+
+            worker.onmessage = function(e) {
+                const { ruinCount, sampleCurves } = e.data;
+                
+                const ror = (ruinCount / simCount) * 100;
+
+                riskOfRuinOut.textContent = ror.toFixed(2) + '%';
+                if (ror > 5) {
+                    riskOfRuinOut.className = 'text-lg sm:text-2xl font-bold text-rose-500 truncate w-full';
+                } else {
+                    riskOfRuinOut.className = 'text-lg sm:text-2xl font-bold text-emerald-400 truncate w-full';
+                }
+
+                renderMcChart(nTrades, ddLimit, sampleCurves);
+
+                runMcBtn.disabled = false;
+                runMcBtn.innerHTML = 'Запустить (Run)';
+                runMcBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+
+                worker.terminate();
+            };
+        });
+
+        function renderMcChart(nTrades, ddLimit, curves) {
+            const ctx = document.getElementById('mcChart').getContext('2d');
+            
+            if (mcChartInstance) {
+                mcChartInstance.destroy();
+            }
+
+            const xLabels = Array.from({length: nTrades + 1}, (_, i) => i);
+            
+            const datasets = curves.map((curve, idx) => ({
+                data: curve,
+                borderColor: 'rgba(59, 130, 246, 0.3)',
+                borderWidth: 1.5,
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                tension: 0
+            }));
+
+            datasets.push({
+                label: 'DD Level',
+                data: Array(nTrades + 1).fill(100 - ddLimit),
+                borderColor: 'rgba(225, 29, 72, 0.8)',
+                borderWidth: 2.5,
+                borderDash: [5, 5],
+                fill: false,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                tension: 0,
+                zIndex: 10
+            });
+
+            mcChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: xLabels,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: {
+                        mode: 'nearest',
+                        intersect: false,
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: false },
+                        // Explicitly disable DataLabels for this chart
+                        datalabels: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            title: { display: window.innerWidth >= 640, text: 'Trade Number', color: '#94a3b8' },
+                            grid: { color: 'rgba(71, 85, 105, 0.2)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            title: { display: window.innerWidth >= 640, text: 'Equity %', color: '#94a3b8' },
+                            grid: { color: 'rgba(71, 85, 105, 0.2)' },
+                            ticks: { color: '#94a3b8' },
+                            suggestedMin: 100 - ddLimit - 10
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

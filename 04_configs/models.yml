@@ -37,7 +37,7 @@ metrics:
   - roc_auc
 
 experiment:
-  current_id: "exp_0021"
+  current_id: "exp_0022"
 
 common:
   random_state: 42

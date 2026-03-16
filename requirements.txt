@@ -9,6 +9,7 @@ requests>=2.28.0
 
 # Работа с YAML конфигурацией
 PyYAML>=6.0
+ruamel.yaml>=0.17.0
 
 # Jupyter notebook (для разработки)
 jupyter>=1.0.0
@@ -41,7 +42,7 @@ fastparquet>=0.8.3
 # Тестирование модулей feature engineering
 pytest>=7.0.0
 pytest-cov>=4.0.0
-psutil
+
 shap
 
 # =============================================================================
